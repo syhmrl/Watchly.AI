@@ -2,26 +2,25 @@ import os
 import random
 import cv2
 import time
+import threading
+import tkinter as tk
+import numpy as np
 from ultralytics import YOLO
 import sqlite3
 from datetime import datetime
 
-video_name = 'test_people.mp4'
+
+video_name = 'test_room.mp4'
 video_path = os.path.join('.', 'video', f'{video_name}')
 video_out_path = os.path.join('.', 'video', f'predicted_{video_name.split(".")[0]}.mp4')
 
 # Camera Settings (unused if using video_path)
 username = "admin"
 password = "Abcdefghi1"
-camera_ip = "169.254.66.46"
+camera_ip = "192.168.1.64"
 rtsp_url = f"rtsp://{username}:{password}@{camera_ip}:554/Streaming/Channels/101"
 
-source = 0
-
-cap = cv2.VideoCapture(source)
-if not cap.isOpened():
-    print("Error: Could not open video stream.")
-    exit()
+source = rtsp_url
 
 frame_width = 1280
 frame_height = 720
@@ -32,11 +31,26 @@ enter_count = 0
 exit_count = 0
 previous_centroids = {}
 
+avg_frame_rate = 0
+frame_rate_buffer = []
+fps_avg_len = 200
+
+# lock = threading.Lock()
+
+# counter_window = tk.Tk()
+# counter_window.title("Entry Counter")
+# counter_window.geometry("200x100")
+
+# # Create a label to display the enter count
+# enter_label = tk.Label(counter_window, text="Enter: 0", font=("Arial", 16))
+# enter_label.pack(pady=20)
+# counter_window.update()
+
 # start_time = time.time()
 # frame_count = 0
 
 # Connect to SQLite database
-conn = sqlite3.connect('watchly_ai.db')
+conn = sqlite3.connect('watchly_ai.db', check_same_thread=False)
 cursor = conn.cursor()
 cursor.execute('''
     CREATE TABLE IF NOT EXISTS crossing_events (
@@ -52,22 +66,32 @@ conn.commit()
 model = YOLO("yolo11s.pt")
 colors = [(random.randint(0, 255), random.randint(0, 255), random.randint(0, 255)) for _ in range(10)]
 
+# def video_processing():
+#     global enter_count, exit_count, previous_centroids, avg_frame_rate
+
+cap = cv2.VideoCapture(source)
+if not cap.isOpened():
+    print("Error: Could not open video stream.")
+    exit()
+
 while True:
+    t_start = time.perf_counter()
+
     ret, frame = cap.read()
     if not ret:
         break
 
     frame = cv2.resize(frame, frame_size)
 
-    # Use model.track() for tracking
+    # model to perform detection and tracking
     results = model.track(
         frame,
         verbose=False,
         classes=[0],  # Track people only
         conf=0.5,
         # imgsz=320,
-        stream=True,
-        stream_buffer=True,
+        # stream=True,
+        # stream_buffer=True,
         persist=True,  # Maintain track state between frames
         tracker="bytetrack.yaml"  # Use ByteTrack tracker
     )
@@ -92,6 +116,8 @@ while True:
                 if prev_cx < line_x and cx >= line_x:
                     direction = 'enter'
                     enter_count += 1
+                    # enter_label.config(text=f"Enter: {enter_count}")
+                    # counter_window.update()
                 elif prev_cx >= line_x and cx < line_x:
                     direction = 'exit'
                     exit_count += 1
@@ -117,13 +143,26 @@ while True:
             
 
     # Draw counting line and counts
+    cv2.putText(frame, f'FPS: {avg_frame_rate:0.2f}', (10,20), cv2.FONT_HERSHEY_SIMPLEX, .7, (0,255,255), 2) # Draw framerate
     cv2.line(frame, (line_x, 0), (line_x, frame_height), (0, 255, 0), 2)
     cv2.putText(frame, f"Enter: {enter_count}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
     cv2.putText(frame, f"Exit: {exit_count}", (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
 
     # frame_count += 1
 
-    
+    # Calculate FPS for this frame
+    t_stop = time.perf_counter()
+    frame_rate_calc = float(1/(t_stop - t_start))
+
+    # Append FPS result to frame_rate_buffer (for finding average FPS over multiple frames)
+    if len(frame_rate_buffer) >= fps_avg_len:
+        temp = frame_rate_buffer.pop(0)
+        frame_rate_buffer.append(frame_rate_calc)
+    else:
+        frame_rate_buffer.append(frame_rate_calc)
+
+    # Calculate average FPS for past frames
+    avg_frame_rate = np.mean(frame_rate_buffer)
 
     cv2.imshow("People Counter", frame)
     if cv2.waitKey(1) & 0xFF == 27:
@@ -134,4 +173,37 @@ while True:
 
 cap.release()
 cv2.destroyAllWindows()
+# counter_window.destroy()
 conn.close()
+
+# def run_tkinter_gui():
+#     global enter_count
+#     root = tk.Tk()
+#     root.title("Entry Counter")
+#     root.geometry("200x100")
+
+#     # Use StringVar to store the counter text
+#     count_var = tk.StringVar()
+#     count_var.set("Enter: 0")
+#     label = tk.Label(root, textvariable=count_var, font=("Arial", 16))
+#     label.pack(pady=20)
+
+#     # Update the label periodically using the after() method
+#     def update_label():
+#         with lock:
+#             current_count = enter_count
+#         count_var.set(f"Enter: {current_count}")
+#         root.after(500, update_label)  # Update every 500 ms
+
+#     update_label()
+#     root.mainloop()
+
+# Create and start the video processing thread.
+# video_thread = threading.Thread(target=video_processing)
+# video_thread.start()
+
+# # Run the Tkinter GUI in the main thread.
+# run_tkinter_gui()
+
+# # Wait for the video processing thread to complete before exiting.
+# video_thread.join()
