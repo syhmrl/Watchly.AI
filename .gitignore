@@ -1,5 +1,8 @@
 video/
 runs/
 _pychache_/
+model_data/
+deep_sort/
 *.zip
 *.pt
+*.db

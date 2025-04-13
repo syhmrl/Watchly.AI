@@ -16,7 +16,7 @@ password = "Abcdefghi1"
 camera_ip = "169.254.66.46"
 rtsp_url = f"rtsp://{username}:{password}@{camera_ip}:554/Streaming/Channels/101"
 
-source = rtsp_url
+source = 0
 
 cap = cv2.VideoCapture(source)
 if not cap.isOpened():
