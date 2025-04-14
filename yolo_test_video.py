@@ -10,27 +10,45 @@ import sqlite3
 from datetime import datetime
 
 
-video_name = 'test_room.mp4'
-video_path = os.path.join('.', 'video', f'{video_name}')
-video_out_path = os.path.join('.', 'video', f'predicted_{video_name.split(".")[0]}.mp4')
+VIDEO_NAME = 'test_clash.mp4'
+VIDEO_PATH = os.path.join('.', 'video', f'{VIDEO_NAME}')
+VIDEO_OUT_PATH = os.path.join('.', 'video', f'predicted_{VIDEO_NAME.split(".")[0]}.mp4')
 
 # Camera Settings (unused if using video_path)
-username = "admin"
-password = "Abcdefghi1"
-camera_ip = "192.168.1.64"
-rtsp_url = f"rtsp://{username}:{password}@{camera_ip}:554/Streaming/Channels/101"
+CAM_USERNAME = "admin"
+CAM_PASSWORD = "Abcdefghi1"
+CAM_IP = "192.168.1.64"
+RTSP_URL = f"rtsp://{CAM_USERNAME}:{CAM_PASSWORD}@{CAM_IP}:554/Streaming/Channels/101"
 
-source = 0
+# Source of the Video/Stream
+VIDEO_SOURCE = VIDEO_PATH
 
-frame_width = 1280
-frame_height = 720
-frame_size = (frame_width, frame_height)
+# Model used
+MODEL_NAME = "yolo11s.pt"
 
-line_x = frame_width // 2  # Vertical line for counting
+# Initialize opencv VideoCapture with the source
+cap = cv2.VideoCapture(VIDEO_SOURCE)
+if not cap.isOpened():
+    print("Error: Could not open video stream.")
+    exit()
+
+# Setup frame size
+FRAME_WIDTH = 1280
+FRAME_HEIGHT = 720
+FRAME_SIZE = (FRAME_WIDTH, FRAME_HEIGHT)
+
+# Setup VideoWriter
+FPS = cap.get(cv2.CAP_PROP_FPS)
+FOURCC = cv2.VideoWriter_fourcc(*"mp4v")
+# out = cv2.VideoWriter(VIDEO_OUT_PATH, FOURCC, FPS, FRAME_SIZE)
+
+# Setup the line coordinate for crossing, enter and exit count
+line_x = FRAME_WIDTH // 2  # Vertical line for counting
 enter_count = 0
 exit_count = 0
 previous_centroids = {}
 
+# Setup framerate variable
 avg_frame_rate = 0
 frame_rate_buffer = []
 fps_avg_len = 200
@@ -63,16 +81,13 @@ cursor.execute('''
 ''')
 conn.commit()
 
-model = YOLO("yolo11n.pt")
+# Initialize model
+model = YOLO(MODEL_NAME)
+# Initialize random colors generator for bounding box
 colors = [(random.randint(0, 255), random.randint(0, 255), random.randint(0, 255)) for _ in range(10)]
 
 # def video_processing():
 #     global enter_count, exit_count, previous_centroids, avg_frame_rate
-
-cap = cv2.VideoCapture(source)
-if not cap.isOpened():
-    print("Error: Could not open video stream.")
-    exit()
 
 while True:
     t_start = time.perf_counter()
@@ -81,7 +96,7 @@ while True:
     if not ret:
         break
 
-    frame = cv2.resize(frame, frame_size)
+    frame = cv2.resize(frame, FRAME_SIZE)
 
     # model to perform detection and tracking
     results = model.predict(
@@ -129,7 +144,7 @@ while True:
             
             if direction:
                 timestamp = datetime.now().isoformat()
-                cursor.execute("INSERT INTO crossing_events (source, track_id, direction, timestamp) VALUES (?, ?, ?, ?)", (source, track_id, direction, timestamp))
+                cursor.execute("INSERT INTO crossing_events (source, track_id, direction, timestamp) VALUES (?, ?, ?, ?)", (VIDEO_SOURCE, track_id, direction, timestamp))
                 conn.commit()
 
             previous_centroids[track_id] = cx
@@ -144,7 +159,7 @@ while True:
 
     # Draw counting line and counts
     cv2.putText(frame, f'FPS: {avg_frame_rate:0.2f}', (10,20), cv2.FONT_HERSHEY_SIMPLEX, .7, (0,255,255), 2) # Draw framerate
-    cv2.line(frame, (line_x, 0), (line_x, frame_height), (0, 255, 0), 2)
+    cv2.line(frame, (line_x, 0), (line_x, FRAME_HEIGHT), (0, 255, 0), 2)
     cv2.putText(frame, f"Enter: {enter_count}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
     cv2.putText(frame, f"Exit: {exit_count}", (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
 
@@ -164,6 +179,8 @@ while True:
     # Calculate average FPS for past frames
     avg_frame_rate = np.mean(frame_rate_buffer)
 
+    # out.write(frame)
+
     cv2.imshow("People Counter", frame)
     if cv2.waitKey(1) & 0xFF == 27:
         break
@@ -172,6 +189,7 @@ while True:
 # print(f"FPS: {fps:.2f}")
 
 cap.release()
+# out.release()
 cv2.destroyAllWindows()
 # counter_window.destroy()
 conn.close()
