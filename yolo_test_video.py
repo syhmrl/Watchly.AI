@@ -20,7 +20,7 @@ password = "Abcdefghi1"
 camera_ip = "192.168.1.64"
 rtsp_url = f"rtsp://{username}:{password}@{camera_ip}:554/Streaming/Channels/101"
 
-source = rtsp_url
+source = 0
 
 frame_width = 1280
 frame_height = 720
@@ -63,7 +63,7 @@ cursor.execute('''
 ''')
 conn.commit()
 
-model = YOLO("yolo11s.pt")
+model = YOLO("yolo11n.pt")
 colors = [(random.randint(0, 255), random.randint(0, 255), random.randint(0, 255)) for _ in range(10)]
 
 # def video_processing():
@@ -84,16 +84,16 @@ while True:
     frame = cv2.resize(frame, frame_size)
 
     # model to perform detection and tracking
-    results = model.track(
+    results = model.predict(
         frame,
         verbose=False,
         classes=[0],  # Track people only
         conf=0.5,
         # imgsz=320,
-        # stream=True,
-        # stream_buffer=True,
-        persist=True,  # Maintain track state between frames
-        tracker="bytetrack.yaml"  # Use ByteTrack tracker
+        stream=True,
+        stream_buffer=True,
+        #persist=True,  # Maintain track state between frames
+        #tracker="bytetrack.yaml"  # Use ByteTrack tracker
     )
 
 
