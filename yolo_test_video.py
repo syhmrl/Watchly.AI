@@ -40,7 +40,7 @@ FRAME_SIZE = (FRAME_WIDTH, FRAME_HEIGHT)
 # Setup VideoWriter
 FPS = cap.get(cv2.CAP_PROP_FPS)
 FOURCC = cv2.VideoWriter_fourcc(*"mp4v")
-out = cv2.VideoWriter(VIDEO_OUT_PATH, FOURCC, FPS, FRAME_SIZE)
+# out = cv2.VideoWriter(VIDEO_OUT_PATH, FOURCC, FPS, FRAME_SIZE)
 
 # Setup the line coordinate for crossing, enter and exit count
 line_x = FRAME_WIDTH // 2  # Vertical line for counting
@@ -179,17 +179,17 @@ while True:
     # Calculate average FPS for past frames
     avg_frame_rate = np.mean(frame_rate_buffer)
 
-    out.write(frame)
+    # out.write(frame)
 
     cv2.imshow("People Counter", frame)
-    if cv2.waitKey(0) & 0xFF == 27:
+    if cv2.waitKey(1) & 0xFF == 27:
         break
 
 # fps = frame_count / (time.time() - start_time)
 # print(f"FPS: {fps:.2f}")
 
 cap.release()
-out.release()
+# out.release()
 cv2.destroyAllWindows()
 # counter_window.destroy()
 conn.close()
