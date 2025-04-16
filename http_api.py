@@ -3,7 +3,7 @@ from requests.auth import HTTPDigestAuth
 import torch
 
 # Replace these values with your camera's settings
-camera_ip = "169.254.66.46"
+camera_ip = "192.168.1.64"
 username = "admin"
 password = "Abcdefghi1"
 
@@ -13,9 +13,9 @@ url = f"http://{camera_ip}/ISAPI/System/deviceInfo"
 response = requests.get(url, auth=HTTPDigestAuth(username, password))
 
 if response.status_code == 200:
-    print("Device Info:")
-    print(response.text)
-    #print(torch.version.cuda)
-    #print(torch.cuda.is_available())
+    #print("Device Info:")
+    #print(response.text)
+    print(torch.version.cuda)
+    print(torch.cuda.is_available())
 else:
     print("Failed to get device info. Status code:", response.status_code)
