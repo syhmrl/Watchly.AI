@@ -21,7 +21,7 @@ CAM_IP = "192.168.1.64"
 RTSP_URL = f"rtsp://{CAM_USERNAME}:{CAM_PASSWORD}@{CAM_IP}:554/Streaming/Channels/101"
 
 # Source of the Video/Stream
-VIDEO_SOURCE = VIDEO_PATH
+VIDEO_SOURCE = RTSP_URL
 
 # Model used
 MODEL_NAME = "yolo11s.pt"
