@@ -1,8 +1,12 @@
 video/
+deep_sort/
+model_data/
 runs/
 _pychache_/
 model_data/
 deep_sort/
+venv
 *.zip
 *.pt
 *.db
+
