@@ -19,3 +19,7 @@ if response.status_code == 200:
     print(torch.cuda.is_available())
 else:
     print("Failed to get device info. Status code:", response.status_code)
+
+from ultralytics import YOLO
+model = YOLO("yolo11s.pt")
+model.export(format="engine", device="cuda")
