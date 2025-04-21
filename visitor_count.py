@@ -170,30 +170,49 @@ def video_processing():
             break
 
 # Start threads
-capture_thread = threading.Thread(target=capture_frames, daemon=True)
-capture_thread.start()
+# capture_thread = threading.Thread(target=capture_frames, daemon=True)
+# capture_thread.start()
 
-db_thread = threading.Thread(target=insert_to_db, daemon=True)
-db_thread.start()
+# db_thread = threading.Thread(target=insert_to_db, daemon=True)
+# db_thread.start()
 
-video_thread = threading.Thread(target=video_processing, daemon=True)
-video_thread.start()
+# video_thread = threading.Thread(target=video_processing, daemon=True)
+# video_thread.start()
 
 # Tkinter setup
+BG_COLOR = 'cadet blue'
+FG_COLOR = 'white'
+
 root = tk.Tk()
 root.title("People Enter Count")
-label = tk.Label(root, text="Enter: 0", font=("Helvetica", 48))
-label.pack(expand=True)
+root.attributes("-fullscreen", True) 
+root.configure(bg=BG_COLOR)
+
+# Configure grid
+root.grid_rowconfigure(0, weight=1)
+root.grid_rowconfigure(1, weight=1)
+root.grid_columnconfigure(0, weight=1)
+
+# Top label
+# label_top = tk.Label(root, text="People Counter\n0", font=("Helvetica", 24), bg=BG_COLOR, fg=FG_COLOR)
+# label_top.grid(row=0, column=0, sticky='ew', padx=0, pady=0)
+
+# Count label
+label = tk.Label(root, text="People Counter 0", font=("Helvetica", 54), bg=BG_COLOR, fg=FG_COLOR)
+label.grid(row=0, column=0, sticky='ew', padx=0, pady=0)
 
 def update_label():
-    label.config(text=f"Enter: {enter_count}")
+    label.config(text=f"People Counter\n{enter_count}")
     root.after(100, update_label)
 
-def on_resize(event):
-    new_size = max(10, event.height // 10)
-    label.config(font=("Helvetica", new_size))
+# def on_resize(event):
+#     height = event.height
+#     new_size_top = max(10, height // 20)  # Smaller font for top text
+#     new_size_count = max(10, height // 10)  # Larger font for count
+#     label_top.config(font=("Helvetica", new_size_top))
+#     label.config(font=("Helvetica", new_size_count))
 
-root.bind("<Configure>", on_resize)
+# root.bind("<Configure>", on_resize)
 
 def on_close():
     stop_event.set()
@@ -208,11 +227,8 @@ def check_stop():
     else:
         root.after(100, check_stop)
 
-# Optional: Full-screen toggle
-def toggle_fullscreen(event=None):
-    root.attributes("-fullscreen", not root.attributes("-fullscreen"))
-
-root.bind("<F>", toggle_fullscreen)
+root.bind("<F11>", lambda event: root.attributes("-fullscreen",
+                                    not root.attributes("-fullscreen")))
 root.bind("<Escape>", lambda event: root.attributes("-fullscreen", False))
 
 # Start updating label and checking stop
