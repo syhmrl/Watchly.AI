@@ -23,7 +23,7 @@ CAM_IP = "192.168.1.64"
 RTSP_URL = f"rtsp://{CAM_USERNAME}:{CAM_PASSWORD}@{CAM_IP}:554/Streaming/Channels/101?transport=tcp"
 
 # Source of the Video/Stream
-VIDEO_SOURCE = RTSP_URL
+VIDEO_SOURCE = 0
 
 # Model used
 MODEL_NAME = "yolo11s.pt"
@@ -170,14 +170,14 @@ def video_processing():
             break
 
 # Start threads
-# capture_thread = threading.Thread(target=capture_frames, daemon=True)
-# capture_thread.start()
+capture_thread = threading.Thread(target=capture_frames, daemon=True)
+capture_thread.start()
 
-# db_thread = threading.Thread(target=insert_to_db, daemon=True)
-# db_thread.start()
+db_thread = threading.Thread(target=insert_to_db, daemon=True)
+db_thread.start()
 
-# video_thread = threading.Thread(target=video_processing, daemon=True)
-# video_thread.start()
+video_thread = threading.Thread(target=video_processing, daemon=True)
+video_thread.start()
 
 # Tkinter setup
 BG_COLOR = 'cadet blue'
