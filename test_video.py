@@ -31,9 +31,19 @@ FRAME_SIZE = (FRAME_WIDTH, FRAME_HEIGHT)
 line_x = FRAME_WIDTH // 2  # Vertical line for counting
 enter_count = 0
 exit_count = 0
+crowd_count = 0  # New counter for crowd counting mode
+total_enter_count = 0
+total_exit_count = 0
+total_crowd_count = 0  # New total for crowd counting
 
 # Setup framerate variable
 fps_avg_len = 200
+
+# Recording settings
+ENABLE_RAW_RECORDING = False
+ENABLE_PREDICTED_RECORDING = False
+
+SKIP_FRAME_BY_KEYPRESSED = 1 # 0 is yes 1 is play video as usual
 
 # Connect to SQLite database
 conn = sqlite3.connect('watchly_ai.db', check_same_thread=False)
@@ -279,11 +289,179 @@ def video_processing_v2():
     cv2.destroyAllWindows()
     print("Video processing thread stopped")
 
+def video_processing_crowd():
+    global crowd_count, total_crowd_count
+
+    source_name = f"Camera Test Crowd"
+    window_name = f"People Counter - {source_name} - Crowd Mode"
+
+    # Create a separate model instance for each thread
+    if torch.cuda.is_available():
+        thread_model = YOLO(MODEL_NAME).to('cuda')
+    else:
+        thread_model = YOLO(MODEL_NAME)
+
+    # Dictionary to track people who have been counted
+    tracked_ids = {}
+    last_seen = {}
+    frame_idx = 0
+    MAX_MISSING = 400  # Number of frames before considering a track lost
+    frame_rate_buffer = []
+    avg_frame_rate = 0
+    colors = [(random.randint(0, 255), random.randint(0, 255), random.randint(0, 255)) for _ in range(100)]
+
+    # Add minimum detection threshold
+    MIN_DETECTIONS = 5  # Require this many consecutive detections before counting
+    
+    # Add to your tracking data structures
+    detection_count = {}  # track_id -> consecutive detection count
+
+    if ENABLE_PREDICTED_RECORDING:
+        # Set a consistent frame rate for recording
+        recording_fps = 15.0
+
+        # Create directories if they don't exist
+        os.makedirs("video/processed", exist_ok=True)
+
+        # Setup video writer for processed frames
+        processed_filename = f"video/processed/processed_{source_name}_crowd_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
+        # Try different codecs if one doesn't work
+        try:
+            # Try MP4V first (more compatible)
+            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+            processed_out = cv2.VideoWriter(processed_filename, fourcc, recording_fps, (FRAME_WIDTH, FRAME_HEIGHT))
+
+        except Exception as e:
+            print(f"Error creating video writer: {e}")
+            # Last resort - MJPG in AVI container
+            fourcc = cv2.VideoWriter_fourcc(*'MJPG')
+            processed_out = cv2.VideoWriter(processed_filename.replace('.mp4', '.avi'), fourcc, recording_fps, (FRAME_WIDTH, FRAME_HEIGHT))
+        
+        if not processed_out.isOpened():
+            print(f"WARNING: Failed to create video writer for {source_name} processed frames. Recording disabled.")
+            processed_out = None
+        else:
+            print(f"Successfully created video writer for {source_name} processed frames")
+    
+    # Make OpenCV window a normal window that can be closed
+    cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
+
+    cap = cv2.VideoCapture(VIDEO_SOURCE)
+    
+    while not stop_event.is_set():
+        t_start = time.perf_counter()
+
+        ret, frame = cap.read()
+        if not ret:
+            break
+
+        frame_idx += 1
+
+        if frame_idx % 2 != 0:
+            continue
+
+        # Process the frame
+        frame = cv2.resize(frame, FRAME_SIZE)
+        results = thread_model.track(
+            frame,
+            verbose=False,
+            classes=[0],  # Track people only
+            conf=0.7,
+            tracker="custom_tracker.yaml"
+        )
+
+        # Create a copy of the frame for visualization and recording
+        visualization_frame = frame.copy()
+
+        seen_ids = set()
+
+        for result in results:
+
+            for box in result.boxes:
+                
+                track_id = int(box.id.item()) if box.id is not None else None
+
+                if track_id is None:
+                    continue
+
+                x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
+                
+                # Track the ID
+                seen_ids.add(track_id)
+                last_seen[track_id] = frame_idx
+
+                # Increment detection counter for this ID
+                detection_count[track_id] = detection_count.get(track_id, 0) + 1
+                
+                # If this is a new person, count them
+                if track_id not in tracked_ids and detection_count[track_id] >= MIN_DETECTIONS:
+                    tracked_ids[track_id] = True
+                    crowd_count += 1
+                    total_crowd_count += 1
+                    
+                    # Record in database
+                    # timestamp = datetime.now().isoformat()
+                    # source_identifier = f"camera_test_crowd"
+                    # pending_inserts.append((source_identifier, track_id, 'enter', timestamp, 'crowd'))
+
+                # Draw bounding box and ID
+                color = colors[track_id % len(colors)]
+                cv2.rectangle(visualization_frame, (x1, y1), (x2, y2), color, 2)
+                cv2.putText(visualization_frame, f"ID: {track_id}", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+
+        # Clean up tracks that haven't been seen recently
+        for tid in list(last_seen):
+            if frame_idx - last_seen.get(tid, frame_idx) > MAX_MISSING:
+                if tid in last_seen:
+                    del last_seen[tid]
+                if tid in detection_count:
+                    del detection_count[tid]
+            # Note: We don't remove from tracked_ids to avoid recounting
+
+        # Display counters
+        cv2.putText(visualization_frame, f"Crowd Count: {crowd_count}", (10, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+
+        # Calculate and display FPS
+        t_stop = time.perf_counter()
+        fps = 1 / (t_stop - t_start)
+        frame_rate_buffer.append(fps)
+        if len(frame_rate_buffer) > fps_avg_len:
+            frame_rate_buffer.pop(0)
+        avg_frame_rate = np.mean(frame_rate_buffer)
+        cv2.putText(visualization_frame, f"FPS: {avg_frame_rate:.1f}", (10, FRAME_HEIGHT - 20), 
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+        
+        # Write processed frame to video
+        if ENABLE_PREDICTED_RECORDING and processed_out is not None and processed_out.isOpened(): 
+            processed_out.write(visualization_frame)
+
+        cv2.imshow(window_name, visualization_frame)
+        key = cv2.waitKey(SKIP_FRAME_BY_KEYPRESSED) & 0xFF
+        
+        # Handle window close or ESC key
+        if key == 27 or cv2.getWindowProperty(window_name, cv2.WND_PROP_VISIBLE) < 1:
+            stop_event.set()
+            break
+    
+    # Clean up
+    if ENABLE_PREDICTED_RECORDING and processed_out is not None: 
+        processed_out.release()
+
+    # Safer window destruction
+    try:
+        if cv2.getWindowProperty(window_name, cv2.WND_PROP_VISIBLE) >= 0:
+            cv2.destroyWindow(window_name)  # Destroy specific window instead of all
+    except cv2.error:
+        pass  # Window was already closed by user
+
+    print(f"Video processing thread for {source_name} stopped")
+
+
 
 db_thread = threading.Thread(target=insert_to_db, daemon=True)
 db_thread.start()
 
-video_thread = threading.Thread(target=video_processing_v2, daemon=True)
+video_thread = threading.Thread(target=video_processing_crowd, daemon=True)
 video_thread.start()
 
 # Tkinter setup

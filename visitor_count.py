@@ -19,11 +19,18 @@ import matplotlib.dates as mdates
 # Camera Settings
 CAM_USERNAME = "admin"
 CAM_PASSWORD = "Abcdefghi1"
-CAM_IP = "192.168.1.64"
-RTSP_URL = f"rtsp://{CAM_USERNAME}:{CAM_PASSWORD}@{CAM_IP}:554/Streaming/Channels/101?transport=tcp"
+CAM_IP = ["192.168.1.64", "192.168.1.65"]
+RTSP_URL = [
+    f"rtsp://{CAM_USERNAME}:{CAM_PASSWORD}@{CAM_IP[0]}:554/Streaming/Channels/101",
+    f"rtsp://{CAM_USERNAME}:{CAM_PASSWORD}@{CAM_IP[1]}:554/Streaming/Channels/101"
+]
 
 # Source of the Video/Stream
-VIDEO_SOURCE = 0
+# VIDEO_SOURCE = 0
+CAMERA_SOURCES = [
+    0,
+    None
+]
 
 # Model used
 MODEL_NAME = "yolo11s.pt"
@@ -34,38 +41,42 @@ FRAME_HEIGHT = 720
 FRAME_SIZE = (FRAME_WIDTH, FRAME_HEIGHT)
 
 # Setup the line coordinate for crossing, enter and exit count
-line_x = FRAME_WIDTH // 2  # Vertical line for counting
-enter_count = 0
-exit_count = 0
+# line_x = FRAME_WIDTH // 2  # Vertical line for counting
+line_positions = [FRAME_WIDTH // 2, FRAME_WIDTH // 2]  # Line position for each camera
+enter_count = [0,0]
+exit_count = [0,0]
+crowd_count = [0, 0]  # New counter for crowd counting mode
+total_enter_count = 0
+total_exit_count = 0
+total_crowd_count = 0  # New total for crowd counting
 
 # Setup framerate variable
 fps_avg_len = 200
 
-# Check for GPU availability and load model on GPU if available
-if torch.cuda.is_available():
-    model = YOLO(MODEL_NAME).to('cuda')
-    print("Using GPU")
-else:
-    model = YOLO(MODEL_NAME)
-    print("Using CPU")
+# Count mode
+COUNT_MODE = "line"  # "line" or "crowd"
+
+# Recording settings
+ENABLE_RAW_RECORDING = False
+ENABLE_PREDICTED_RECORDING = False
 
 # Thread control
 class ThreadControl:
     def __init__(self):
         self.stop_event = threading.Event()
         self.threads = []
-        self.frame_queue = queue.Queue(maxsize=1)
+        self.frame_queue = [queue.Queue(maxsize=1), queue.Queue(maxsize=1)]
         self.pending_inserts = []
-        self.video_window_open = False
+        self.video_window_open = set()
         self.reset()
     
     def reset(self):
         """Reset all thread states and counters"""
         self.stop_event.clear()
-        self.frame_queue = queue.Queue(maxsize=1)
+        self.frame_queue = [queue.Queue(maxsize=1) for _ in range(len(CAMERA_SOURCES))]
         self.pending_inserts = []
         self.threads = []
-        self.video_window_open = False
+        self.video_window_open = set()
 
 # Global thread controller
 thread_controller = ThreadControl()
@@ -86,6 +97,9 @@ class Database:
         self._connection = sqlite3.connect('watchly_ai.db', check_same_thread=False)
         self._cursor = self._connection.cursor()
         
+        # Use when you to clear table contents
+        # self._cursor.execute("DROP TABLE IF EXISTS crossing_events")
+         
         # Initialize schema
         self._cursor.execute('''
             CREATE TABLE IF NOT EXISTS crossing_events (
@@ -93,9 +107,11 @@ class Database:
                 source    TEXT,
                 track_id  INTEGER,
                 direction TEXT,
-                timestamp TEXT
+                timestamp TEXT,
+                mode_type TEXT DEFAULT 'line'
             )
         ''')
+
         self._connection.commit()
     
     def get_connection(self):
@@ -109,43 +125,93 @@ class Database:
             Database._instance = None
 
 # Frame capture function
-def capture_frames():
-    cap = cv2.VideoCapture(VIDEO_SOURCE)
+def capture_frames(source_index):
+    source = CAMERA_SOURCES[source_index]
+    source_name = f"Camera {source_index + 1}"
+
+    cap = cv2.VideoCapture(source)
+
+    if not cap.isOpened():
+        print(f"ERROR: Failed to open video source for {source_name}: {source}")
+        return
+    else:
+        print(f"Successfully opened video source for {source_name}")
+
     cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # Reduce buffer size for lower latency
-    
-    # Setup video writer if recording is enabled
-    output_filename = f"video/recording_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
-    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-    out = cv2.VideoWriter(output_filename, fourcc, 15.0, FRAME_SIZE)
+
+    if ENABLE_RAW_RECORDING:
+        # Get actual frame size from the camera
+        actual_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        actual_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        actual_fps = cap.get(cv2.CAP_PROP_FPS)
+
+        # Use consistent frame rate
+        if actual_fps <= 0:
+            actual_fps = 15.0  # Fallback FPS if not detected
+        # Create directories if they don't exist
+        os.makedirs("video/raw", exist_ok=True)
+        
+        # Setup video writer if recording is enabled
+        raw_filename = f"video/raw/raw_{source_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
+
+         # Try different codecs if one doesn't work
+        try:
+            # Try H264 first (more compatible)
+            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+            raw_out = cv2.VideoWriter(raw_filename, fourcc, actual_fps, (actual_width, actual_height))
+            
+            # Check if writer opened successfully
+            if not raw_out.isOpened():
+                # If MP4V fails, try H264
+                fourcc = cv2.VideoWriter_fourcc(*'H264')
+                raw_out = cv2.VideoWriter(raw_filename, fourcc, actual_fps, (FRAME_WIDTH, FRAME_HEIGHT))
+                
+                # If still not working, try XVID
+                if not raw_out.isOpened():
+                    fourcc = cv2.VideoWriter_fourcc(*'XVID')
+                    raw_out = cv2.VideoWriter(raw_filename.replace('.mp4', '.avi'), fourcc, actual_fps, (FRAME_WIDTH, FRAME_HEIGHT))
+        except Exception as e:
+            print(f"Error creating video writer: {e}")
+            # Last resort - MJPG in AVI container
+            fourcc = cv2.VideoWriter_fourcc(*'MJPG')
+            raw_out = cv2.VideoWriter(raw_filename.replace('.mp4', '.avi'), fourcc, actual_fps, (FRAME_WIDTH, FRAME_HEIGHT))
+        
+        if not raw_out.isOpened():
+            print(f"WARNING: Failed to create video writer for {source_name}. Recording disabled.")
+            raw_out = None
+        else:
+            print(f"Successfully created video writer for {source_name} raw frames")
     
     while not thread_controller.stop_event.is_set():
         ret, frame = cap.read()
         if not ret:
-            print("Failed to get frame from camera")
+            print(f"Failed to get frame from {source_name}")
             time.sleep(1)  # Wait before retrying
             # Try to reconnect
             cap.release()
-            cap = cv2.VideoCapture(VIDEO_SOURCE)
+            cap = cv2.VideoCapture(source)
             continue
             
         # Save frame to video if recording
-        out.write(frame)
+        if ENABLE_RAW_RECORDING and raw_out is not None and raw_out.isOpened(): 
+            raw_out.write(frame)
         
         try:
             # Put frame in queue, replace if full
-            if thread_controller.frame_queue.full():
+            if thread_controller.frame_queue[source_index].full():
                 try:
-                    thread_controller.frame_queue.get_nowait()
+                    thread_controller.frame_queue[source_index].get_nowait()
                 except queue.Empty:
                     pass
-            thread_controller.frame_queue.put(frame, block=False)
+            thread_controller.frame_queue[source_index].put(frame, block=False)
         except queue.Full:
             pass  # Skip frame if queue is full
     
     # Clean up resources
     cap.release()
-    out.release()
-    print("Frame capture thread stopped")
+    if ENABLE_RAW_RECORDING and raw_out is not None: 
+        raw_out.release()
+    print(f"Frame capture thread for {source_name} stopped")
 
 # Database insert function
 def insert_to_db():
@@ -162,7 +228,7 @@ def insert_to_db():
             try:
                 with conn:
                     cursor.executemany(
-                        "INSERT INTO crossing_events (source, track_id, direction, timestamp) VALUES (?, ?, ?, ?)", 
+                        "INSERT INTO crossing_events (source, track_id, direction, timestamp, mode_type) VALUES (?, ?, ?, ?, ?)", 
                         inserts_to_process
                     )
             except sqlite3.Error as e:
@@ -171,26 +237,36 @@ def insert_to_db():
     print("Database thread stopped")
 
 # Video processing function
-def video_processing():
-    global enter_count, exit_count
+def video_processing_line(source_index):
+    global enter_count, exit_count, total_enter_count, total_exit_count
+
+    source_name = f"Camera {source_index + 1}"
+    window_name = f"People Counter - {source_name} - Line Mode"
+
+    # Create a separate model instance for each thread
+    if torch.cuda.is_available():
+        thread_model = YOLO(MODEL_NAME).to('cuda')
+    else:
+        thread_model = YOLO(MODEL_NAME)
+
     track_states = {}  
     previous_centroids = {}
     last_seen = {}
     frame_idx = 0
-    MAX_MISSING = 10  # Number of frames before considering a track lost
+    MAX_MISSING = 400  # Number of frames before considering a track lost
     frame_rate_buffer = []
     avg_frame_rate = 0
     colors = [(random.randint(0, 255), random.randint(0, 255), random.randint(0, 255)) for _ in range(100)]
     
     # Make OpenCV window a normal window that can be closed
-    cv2.namedWindow("People Counter", cv2.WINDOW_NORMAL)
+    cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
     thread_controller.video_window_open = True
     
     while not thread_controller.stop_event.is_set():
         t_start = time.perf_counter()
 
         try:
-            frame = thread_controller.frame_queue.get(timeout=0.1)
+            frame = thread_controller.frame_queue[source_index].get(timeout=0.1)
         except queue.Empty:
             continue
 
@@ -198,11 +274,11 @@ def video_processing():
 
         # Process the frame
         frame = cv2.resize(frame, FRAME_SIZE)
-        results = model.track(
+        results = thread_model.track(
             frame,
             verbose=False,
             classes=[0],  # Track people only
-            conf=0.5,
+            conf=0.7,
             stream=True,
             stream_buffer=True,
             persist=True,
@@ -229,12 +305,15 @@ def video_processing():
 
                 direction = None
                 # State machine transitions
+                line_x = line_positions[source_index]
                 if state == 0 and prev_cx < line_x <= cx:
-                    enter_count += 1
+                    enter_count[source_index] += 1
+                    total_enter_count += 1
                     direction = 'enter'
                     track_states[track_id] = 1   # ENTERED
                 elif state == 0 and prev_cx >= line_x > cx:
-                    exit_count += 1
+                    exit_count[source_index] += 1
+                    total_exit_count += 1
                     direction = 'exit'
                     track_states[track_id] = 2   # EXITED
                 
@@ -243,7 +322,8 @@ def video_processing():
 
                 if direction:
                     timestamp = datetime.now().isoformat()
-                    thread_controller.pending_inserts.append((VIDEO_SOURCE, track_id, direction, timestamp))
+                    source_identifier = f"camera_{source_index}" 
+                    thread_controller.pending_inserts.append((source_identifier, track_id, direction, timestamp, 'line'))
 
                 # Draw bounding box and ID
                 color = colors[track_id % len(colors)]
@@ -261,11 +341,11 @@ def video_processing():
                     del previous_centroids[tid]
 
         # Draw counting line
-        cv2.line(frame, (line_x, 0), (line_x, FRAME_HEIGHT), (0, 255, 0), 2)
+        cv2.line(frame, (line_positions[source_index], 0), (line_positions[source_index], FRAME_HEIGHT), (0, 255, 0), 2)
 
         # Display counters
-        cv2.putText(frame, f"Enter: {enter_count}", (10, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-        cv2.putText(frame, f"Exit: {exit_count}", (10, 70), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+        cv2.putText(frame, f"Enter: {enter_count[source_index]}", (10, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+        cv2.putText(frame, f"Exit: {exit_count[source_index]}", (10, 70), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
 
         # Calculate and display FPS
         t_stop = time.perf_counter()
@@ -277,30 +357,211 @@ def video_processing():
         cv2.putText(frame, f"FPS: {avg_frame_rate:.1f}", (10, FRAME_HEIGHT - 20), 
                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
 
-        cv2.imshow("People Counter", frame)
+        cv2.imshow(window_name, frame)
         key = cv2.waitKey(1) & 0xFF
         
         # Handle window close or ESC key
-        if key == 27 or cv2.getWindowProperty("People Counter", cv2.WND_PROP_VISIBLE) < 1:
+        if key == 27 or cv2.getWindowProperty(window_name, cv2.WND_PROP_VISIBLE) < 1:
             thread_controller.stop_event.set()
             break
+    
+    # Clean up
+    cv2.destroyAllWindows(window_name)
+    thread_controller.video_window_open = False
+    print(f"Video processing thread for {source_name} stopped")
 
-# Start threads
-# capture_thread = threading.Thread(target=capture_frames, daemon=True)
-# capture_thread.start()
+# Video processing function for crowd counting
+def video_processing_crowd(source_index):
+    global crowd_count, total_crowd_count
 
-# db_thread = threading.Thread(target=insert_to_db, daemon=True)
-# db_thread.start()
+    source_name = f"Camera {source_index + 1}"
+    window_name = f"People Counter - {source_name} - Crowd Mode"
 
-# video_thread = threading.Thread(target=video_processing, daemon=True)
-# video_thread.start()
+    # Create a separate model instance for each thread
+    if torch.cuda.is_available():
+        thread_model = YOLO(MODEL_NAME).to('cuda')
+    else:
+        thread_model = YOLO(MODEL_NAME)
 
+    # Dictionary to track people who have been counted
+    tracked_ids = {}
+    last_seen = {}
+    frame_idx = 0
+    MAX_MISSING = 400  # Number of frames before considering a track lost
+    frame_rate_buffer = []
+    avg_frame_rate = 0
+    colors = [(random.randint(0, 255), random.randint(0, 255), random.randint(0, 255)) for _ in range(100)]
+
+    # Add minimum detection threshold
+    MIN_DETECTIONS = 5  # Require this many consecutive detections before counting
+    
+    # Add to your tracking data structures
+    detection_count = {}  # track_id -> consecutive detection count
+
+    if ENABLE_PREDICTED_RECORDING:
+        # Set a consistent frame rate for recording
+        recording_fps = 15.0
+
+        # Create directories if they don't exist
+        os.makedirs("video/processed", exist_ok=True)
+
+        # Setup video writer for processed frames
+        processed_filename = f"video/processed/processed_{source_name}_crowd_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
+        # Try different codecs if one doesn't work
+        try:
+            # Try MP4V first (more compatible)
+            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+            processed_out = cv2.VideoWriter(processed_filename, fourcc, recording_fps, (FRAME_WIDTH, FRAME_HEIGHT))
+            
+            # Check if writer opened successfully
+            if not processed_out.isOpened():
+                # If MP4V fails, try H264
+                fourcc = cv2.VideoWriter_fourcc(*'H264')
+                processed_out = cv2.VideoWriter(processed_filename, fourcc, recording_fps, (FRAME_WIDTH, FRAME_HEIGHT))
+                
+                # If still not working, try XVID
+                if not processed_out.isOpened():
+                    fourcc = cv2.VideoWriter_fourcc(*'XVID')
+                    processed_out = cv2.VideoWriter(processed_filename.replace('.mp4', '.avi'), fourcc, recording_fps, (FRAME_WIDTH, FRAME_HEIGHT))
+        except Exception as e:
+            print(f"Error creating video writer: {e}")
+            # Last resort - MJPG in AVI container
+            fourcc = cv2.VideoWriter_fourcc(*'MJPG')
+            processed_out = cv2.VideoWriter(processed_filename.replace('.mp4', '.avi'), fourcc, recording_fps, (FRAME_WIDTH, FRAME_HEIGHT))
+        
+        if not processed_out.isOpened():
+            print(f"WARNING: Failed to create video writer for {source_name} processed frames. Recording disabled.")
+            processed_out = None
+        else:
+            print(f"Successfully created video writer for {source_name} processed frames")
+    
+    # Make OpenCV window a normal window that can be closed
+    cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
+    thread_controller.video_window_open = True
+    
+    while not thread_controller.stop_event.is_set():
+        t_start = time.perf_counter()
+
+        try:
+            frame = thread_controller.frame_queue[source_index].get(timeout=0.1)
+        except queue.Empty:
+            continue
+
+        frame_idx += 1
+
+        # Process the frame
+        frame = cv2.resize(frame, FRAME_SIZE)
+        results = thread_model.track(
+            frame,
+            verbose=False,
+            classes=[0],  # Track people only
+            conf=0.7,
+            stream=True,
+            stream_buffer=True,
+            persist=True,
+            tracker="custom_tracker.yaml"
+        )
+
+        # Create a copy of the frame for visualization and recording
+        visualization_frame = frame.copy()
+
+        seen_ids = set()
+
+        for result in results:
+
+            for box in result.boxes:
+                
+                track_id = int(box.id.item()) if box.id is not None else None
+
+                if track_id is None:
+                    continue
+
+                x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
+                
+                # Track the ID
+                seen_ids.add(track_id)
+                last_seen[track_id] = frame_idx
+
+                # Increment detection counter for this ID
+                detection_count[track_id] = detection_count.get(track_id, 0) + 1
+                
+                # If this is a new person, count them
+                if track_id not in tracked_ids and detection_count[track_id] >= MIN_DETECTIONS:
+                    tracked_ids[track_id] = True
+                    crowd_count[source_index] += 1
+                    total_crowd_count += 1
+                    
+                    # Record in database
+                    timestamp = datetime.now().isoformat()
+                    source_identifier = f"camera_{source_index}"
+                    thread_controller.pending_inserts.append((source_identifier, track_id, 'enter', timestamp, 'crowd'))
+
+                # Draw bounding box and ID
+                color = colors[track_id % len(colors)]
+                cv2.rectangle(visualization_frame, (x1, y1), (x2, y2), color, 2)
+                cv2.putText(visualization_frame, f"ID: {track_id}", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+
+        # Clean up tracks that haven't been seen recently
+        for tid in list(last_seen):
+            if frame_idx - last_seen.get(tid, frame_idx) > MAX_MISSING:
+                if tid in last_seen:
+                    del last_seen[tid]
+                if tid in detection_count:
+                    del detection_count[tid]
+            # Note: We don't remove from tracked_ids to avoid recounting
+
+        # Display counters
+        cv2.putText(visualization_frame, f"Crowd Count: {crowd_count[source_index]}", (10, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+
+        # Calculate and display FPS
+        t_stop = time.perf_counter()
+        fps = 1 / (t_stop - t_start)
+        frame_rate_buffer.append(fps)
+        if len(frame_rate_buffer) > fps_avg_len:
+            frame_rate_buffer.pop(0)
+        avg_frame_rate = np.mean(frame_rate_buffer)
+        cv2.putText(visualization_frame, f"FPS: {avg_frame_rate:.1f}", (10, FRAME_HEIGHT - 20), 
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+        
+        # Write processed frame to video
+        if ENABLE_PREDICTED_RECORDING and processed_out is not None and processed_out.isOpened(): 
+            processed_out.write(visualization_frame)
+
+        cv2.imshow(window_name, visualization_frame)
+        key = cv2.waitKey(1) & 0xFF
+        
+        # Handle window close or ESC key
+        if key == 27 or cv2.getWindowProperty(window_name, cv2.WND_PROP_VISIBLE) < 1:
+            thread_controller.stop_event.set()
+            break
+    
+    # Clean up
+    if ENABLE_PREDICTED_RECORDING and processed_out is not None: 
+        processed_out.release()
+
+    # Safer window destruction
+    try:
+        if cv2.getWindowProperty(window_name, cv2.WND_PROP_VISIBLE) >= 0:
+            cv2.destroyWindow(window_name)  # Destroy specific window instead of all
+    except cv2.error:
+        pass  # Window was already closed by user
+
+    thread_controller.video_window_open = False
+    print(f"Video processing thread for {source_name} stopped")
+
+
+def counter_window(on_close=None):
 # Tkinter setup
-BG_COLOR = 'cadet blue'
-FG_COLOR = 'white'
+    BG_COLOR = 'cadet blue'
+    FG_COLOR = 'white'
 
     root = tk.Tk()
-    root.title("People Enter Count")
+
+    if COUNT_MODE == "line":
+        root.title("People Enter Count - Line Mode")
+    else:
+        root.title("People Crowd Count - Crowd Mode")
+
     root.configure(bg=BG_COLOR)
     
     # Store the update timer ID
@@ -313,13 +574,19 @@ FG_COLOR = 'white'
 
     # Count label
     label = tk.Label(root, text="People Counter\n0", font=("Helvetica", 54), bg=BG_COLOR, fg=FG_COLOR)
+
     label.grid(row=0, column=0, sticky='ew', padx=0, pady=0)
 
     def update_label():
         nonlocal label_update_id
         if thread_controller.stop_event.is_set():
             return
-        label.config(text=f"People Counter\n{enter_count}")
+        
+        if COUNT_MODE == "line":
+            label.config(text=f"People Counter\n{total_enter_count}")
+        else:
+            label.config(text=f"People Counter\n{total_crowd_count}")
+
         label_update_id = root.after(100, update_label)
 
     def handle_close():
@@ -336,9 +603,9 @@ FG_COLOR = 'white'
         
         root.destroy()
         
-        # If video window is still open, close it
-        if thread_controller.video_window_open:
-            cv2.destroyAllWindows()
+        # # If video window is still open, close it
+        # if thread_controller.video_window_open:
+        cv2.destroyAllWindows()
         
         # Call the provided callback
         if on_close:
@@ -360,21 +627,31 @@ FG_COLOR = 'white'
 
 # Start the tracking threads
 def start_threads(on_session_end=None):
+    global total_enter_count, total_exit_count, total_crowd_count
+
     # Reset the thread controller
     thread_controller.reset()
     
-    # Create and start the threads
-    capture_thread = threading.Thread(target=capture_frames, daemon=True)
-    capture_thread.start()
-    thread_controller.threads.append(capture_thread)
+    # Create and start capture threads for each camera
+    for i, source in enumerate(CAMERA_SOURCES):
+        if source is not None:  # Only start threads for defined sources
+            # Capture thread
+            capture_thread = threading.Thread(target=capture_frames, args=(i,), daemon=True)
+            capture_thread.start()
+            thread_controller.threads.append(capture_thread)
+            
+            # Processing thread for each camera - use correct mode
+            if COUNT_MODE == "line":
+                video_thread = threading.Thread(target=video_processing_line, args=(i,), daemon=True)
+            else:
+                video_thread = threading.Thread(target=video_processing_crowd, args=(i,), daemon=True)
+
+            video_thread.start()
+            thread_controller.threads.append(video_thread)
 
     db_thread = threading.Thread(target=insert_to_db, daemon=True)
     db_thread.start()
     thread_controller.threads.append(db_thread)
-
-    video_thread = threading.Thread(target=video_processing, daemon=True)
-    video_thread.start()
-    thread_controller.threads.append(video_thread)
 
     # Start the counter window
     counter_window(on_close=on_session_end)
@@ -386,17 +663,30 @@ def show_selection_window():
     this window is destroyed and start_threads() is called.
     When the counter window later closes, it will re-invoke this function.
     """
+    global COUNT_MODE
+
     # Ensure any previous stop event is set
     thread_controller.stop_event.set()
     
     # Create the main window
     sel = tk.Tk()
-    sel.title("Select Counting Mode")
-    sel.geometry("400x350")
+    sel.title("People Counter - Select Counting Mode")
+    sel.geometry("500x500")
     
     # Add padding and styling
     content_frame = tk.Frame(sel, padx=20, pady=20)
     content_frame.pack(fill=tk.BOTH, expand=True)
+
+    # Count type selection
+    count_type_frame = tk.LabelFrame(content_frame, text="Counting Type", padx=10, pady=10)
+    count_type_frame.pack(fill=tk.X, pady=(0, 10))
+    
+    count_type_var = tk.StringVar(value="line")
+    
+    tk.Radiobutton(count_type_frame, text="Line Crossing (Standard)", variable=count_type_var, 
+                  value="line", command=lambda: on_count_type_change("line")).pack(anchor='w')
+    tk.Radiobutton(count_type_frame, text="Crowd Count (Person in Frame)", variable=count_type_var, 
+                  value="crowd", command=lambda: on_count_type_change("crowd")).pack(anchor='w')
     
     # Mode selection
     mode_frame = tk.LabelFrame(content_frame, text="Select Mode", padx=10, pady=10)
@@ -432,46 +722,102 @@ def show_selection_window():
 
     mode_var.trace_add('write', on_mode_change)
 
+    # Handle count type change
+    def on_count_type_change(mode):
+        global COUNT_MODE
+        COUNT_MODE = mode
+
     # Initialize count for today's data
     def init_today_counts():
-        global enter_count, exit_count
+        global enter_count, exit_count, total_enter_count, total_exit_count
         db = Database()
         _, cursor = db.get_connection()
 
         today = date.today()
         start_dt = datetime.combine(today, datetime.min.time()).isoformat()
 
-        cursor.execute("""SELECT direction, COUNT(*) FROM crossing_events 
-                        WHERE timestamp >= ? GROUP BY direction""",
+        # Reset counts
+        enter_count = [0, 0]
+        exit_count = [0, 0]
+        crowd_count = [0, 0]
+        total_enter_count = 0
+        total_exit_count = 0
+        total_crowd_count = 0
+
+        if COUNT_MODE == "line":
+            cursor.execute("""SELECT direction, COUNT(*) FROM crossing_events 
+                        WHERE timestamp >= ? AND mode_type = 'line' GROUP BY direction""",
                         (start_dt,))
-        ec = xc = 0
-        for d, c in cursor.fetchall():
-            if d=='enter': ec=c
-            else: xc=c
-        enter_count, exit_count = ec, xc
+            
+            for d, c in cursor.fetchall():
+                if d == 'enter':
+                    total_enter_count = c
+                else:
+                    total_exit_count = c
+            
+            # Set the first camera's count to the total
+            enter_count[0] = total_enter_count
+            exit_count[0] = total_exit_count
+        else:
+            cursor.execute("""SELECT COUNT(*) FROM crossing_events 
+                          WHERE timestamp >= ? AND mode_type = 'crowd'""",
+                          (start_dt,))
+            
+            total_crowd_count = cursor.fetchone()[0] or 0
+            
+            # Set the first camera's count to the total
+            crowd_count[0] = total_crowd_count
 
     # Initialize count for custom date range
     def init_custom_counts():
-        global enter_count, exit_count
+        global enter_count, exit_count, total_enter_count, total_exit_count, crowd_count, total_crowd_count
         db = Database()
         _, cursor = db.get_connection()
+
+        
 
         try:
             s = start_entry.get_date().isoformat() + "T00:00:00"
             e = end_entry.get_date().isoformat() + "T23:59:59"
 
-            cursor.execute("""SELECT direction, COUNT(*) FROM crossing_events 
-                            WHERE timestamp BETWEEN ? AND ? GROUP BY direction""",
-                            (s, e))
-            ec = xc = 0
-            for d, c in cursor.fetchall():
-                if d=='enter': ec=c
-                else: xc=c
-            enter_count, exit_count = ec, xc
+            # Reset counts
+            enter_count = [0, 0]
+            exit_count = [0, 0]
+            crowd_count = [0, 0]
+            total_enter_count = 0
+            total_exit_count = 0
+            total_crowd_count = 0
+
+            if COUNT_MODE == "line":
+                cursor.execute("""SELECT direction, COUNT(*) FROM crossing_events 
+                                WHERE timestamp BETWEEN ? AND ? AND mode_type = 'line' GROUP BY direction""",
+                                (s, e))
+                
+                for d, c in cursor.fetchall():
+                    if d == 'enter':
+                        total_enter_count = c
+                    else:
+                        total_exit_count = c
+
+                # Set the first camera's count to the total
+                enter_count[0] = total_enter_count
+                exit_count[0] = total_exit_count
+            else:
+                cursor.execute("""SELECT COUNT(*) FROM crossing_events 
+                              WHERE timestamp BETWEEN ? AND ? AND mode_type = 'crowd'""",
+                              (s, e))
+                
+                total_crowd_count = cursor.fetchone()[0] or 0
+                
+                # Set the first camera's count to the total
+                crowd_count[0] = total_crowd_count
             
         except Exception as ex:
             messagebox.showerror("Error", f"Failed to get data: {str(ex)}")
-            enter_count, exit_count = 0, 0
+            total_enter_count = total_exit_count = total_crowd_count = 0
+            enter_count = [0, 0]
+            exit_count = [0, 0]
+            crowd_count = [0, 0]
 
     # Create and show the query window
     def open_query_window():
@@ -728,12 +1074,17 @@ def show_selection_window():
 
     # Handle start button click
     def on_start():
-        global enter_count, exit_count
+        global enter_count, exit_count, total_enter_count, total_exit_count, crowd_count, total_crowd_count
         m = mode_var.get()
         if m == 0:
             # Start fresh
-            enter_count = 0
-            exit_count = 0
+            enter_count = [0,0]
+            exit_count = [0,0]
+            crowd_count = [0, 0]
+            total_enter_count = 0
+            total_exit_count = 0
+            total_crowd_count = 0
+
         elif m == 1:
             # Use today's data
             init_today_counts()
