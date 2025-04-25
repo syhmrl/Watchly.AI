@@ -28,7 +28,7 @@ RTSP_URL = [
 # Source of the Video/Stream
 # VIDEO_SOURCE = 0
 CAMERA_SOURCES = [
-    0,
+    RTSP_URL[0],
     None
 ]
 
@@ -57,8 +57,76 @@ fps_avg_len = 200
 COUNT_MODE = "line"  # "line" or "crowd"
 
 # Recording settings
-ENABLE_RAW_RECORDING = False
-ENABLE_PREDICTED_RECORDING = False
+ENABLE_RAW_RECORDING = True
+ENABLE_PREDICTED_RECORDING = True
+
+# Add these constants at the beginning of your file where other constants are defined
+INITIAL_ZOOM = 1.0  # No zoom by default
+MAX_ZOOM = 5.0      # Maximum zoom level
+ZOOM_STEP = 0.1     # How much to change zoom per key press
+
+# Add this class to handle zoom parameters
+class ZoomController:
+    def __init__(self):
+        self.zoom_factor = INITIAL_ZOOM  # Current zoom level
+        self.zoom_center_x = 0.5         # Center point of zoom (normalized 0-1)
+        self.zoom_center_y = 0.5         # Center point of zoom (normalized 0-1)
+        self.pan_step = 0.02             # How much to pan per key press
+
+    def increase_zoom(self):
+        self.zoom_factor = min(self.zoom_factor + ZOOM_STEP, MAX_ZOOM)
+        return self.zoom_factor
+        
+    def decrease_zoom(self):
+        self.zoom_factor = max(self.zoom_factor - ZOOM_STEP, 1.0)
+        return self.zoom_factor
+    
+    def pan_left(self):
+        self.zoom_center_x = max(self.zoom_center_x - self.pan_step, 0.0)
+        
+    def pan_right(self):
+        self.zoom_center_x = min(self.zoom_center_x + self.pan_step, 1.0)
+        
+    def pan_up(self):
+        self.zoom_center_y = max(self.zoom_center_y - self.pan_step, 0.0)
+        
+    def pan_down(self):
+        self.zoom_center_y = min(self.zoom_center_y + self.pan_step, 1.0)
+    
+    def apply_zoom(self, frame):
+        """Apply digital zoom to the frame"""
+        if self.zoom_factor <= 1.0:
+            return frame  # No zoom needed
+            
+        # Get frame dimensions
+        h, w = frame.shape[:2]
+        
+        # Calculate the region of interest based on zoom factor and center point
+        # The higher the zoom, the smaller the ROI
+        roi_size = 1.0 / self.zoom_factor
+        
+        # Calculate the top-left corner of the ROI
+        x1 = int(w * (self.zoom_center_x - roi_size/2))
+        y1 = int(h * (self.zoom_center_y - roi_size/2))
+        
+        # Calculate the bottom-right corner of the ROI
+        x2 = int(w * (self.zoom_center_x + roi_size/2))
+        y2 = int(h * (self.zoom_center_y + roi_size/2))
+        
+        # Ensure ROI is within the frame boundaries
+        x1 = max(0, x1)
+        y1 = max(0, y1)
+        x2 = min(w, x2)
+        y2 = min(h, y2)
+        
+        # Extract the ROI
+        roi = frame[y1:y2, x1:x2]
+        
+        # Resize the ROI to the original frame size
+        if roi.size > 0:  # Check if ROI is not empty
+            return cv2.resize(roi, (w, h), interpolation=cv2.INTER_LINEAR)
+        else:
+            return frame  # Return original frame if ROI is invalid
 
 # Thread control
 class ThreadControl:
@@ -69,6 +137,8 @@ class ThreadControl:
         self.pending_inserts = []
         self.video_window_open = set()
         self.reset()
+        # Add zoom controllers for each camera
+        self.zoom_controllers = [ZoomController() for _ in range(len(CAMERA_SOURCES))]
     
     def reset(self):
         """Reset all thread states and counters"""
@@ -184,6 +254,9 @@ def capture_frames(source_index):
     
     while not thread_controller.stop_event.is_set():
         ret, frame = cap.read()
+
+        # frame = cv2.flip(frame, 1)
+
         if not ret:
             print(f"Failed to get frame from {source_name}")
             time.sleep(1)  # Wait before retrying
@@ -398,6 +471,9 @@ def video_processing_crowd(source_index):
     # Add to your tracking data structures
     detection_count = {}  # track_id -> consecutive detection count
 
+    # Get zoom controller for this source
+    zoom_controller = thread_controller.zoom_controllers[source_index]
+
     if ENABLE_PREDICTED_RECORDING:
         # Set a consistent frame rate for recording
         recording_fps = 15.0
@@ -438,6 +514,13 @@ def video_processing_crowd(source_index):
     # Make OpenCV window a normal window that can be closed
     cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
     thread_controller.video_window_open = True
+
+    # Print zoom controls instruction
+    print(f"Zoom Controls for {window_name}:")
+    print("  + : Zoom in")
+    print("  - : Zoom out")
+    print("  Arrow keys: Pan the view")
+    print("  R : Reset zoom")
     
     while not thread_controller.stop_event.is_set():
         t_start = time.perf_counter()
@@ -448,6 +531,10 @@ def video_processing_crowd(source_index):
             continue
 
         frame_idx += 1
+
+        # Apply digital zoom before any processing
+        frame = zoom_controller.apply_zoom(frame)
+
 
         # Process the frame
         frame = cv2.resize(frame, FRAME_SIZE)
@@ -461,6 +548,8 @@ def video_processing_crowd(source_index):
             persist=True,
             tracker="custom_tracker.yaml"
         )
+
+        # frame = cv2.flip(frame, 1)
 
         # Create a copy of the frame for visualization and recording
         visualization_frame = frame.copy()
@@ -529,6 +618,24 @@ def video_processing_crowd(source_index):
 
         cv2.imshow(window_name, visualization_frame)
         key = cv2.waitKey(1) & 0xFF
+
+        # Handle zoom controls
+        if key == ord('+') or key == ord('='):  # Zoom in with + or = key
+            zoom_controller.increase_zoom()
+        elif key == ord('-') or key == ord('_'):  # Zoom out with - or _ key
+            zoom_controller.decrease_zoom()
+        elif key == ord('r') or key == ord('R'):  # Reset zoom with R key
+            zoom_controller.zoom_factor = INITIAL_ZOOM
+            zoom_controller.zoom_center_x = 0.5
+            zoom_controller.zoom_center_y = 0.5
+        elif key == 0x51:  # Left arrow
+            zoom_controller.pan_left()
+        elif key == 0x53:  # Right arrow
+            zoom_controller.pan_right()
+        elif key == 0x52:  # Up arrow
+            zoom_controller.pan_up()
+        elif key == 0x54:  # Down arrow
+            zoom_controller.pan_down()
         
         # Handle window close or ESC key
         if key == 27 or cv2.getWindowProperty(window_name, cv2.WND_PROP_VISIBLE) < 1:
@@ -548,7 +655,6 @@ def video_processing_crowd(source_index):
 
     thread_controller.video_window_open = False
     print(f"Video processing thread for {source_name} stopped")
-
 
 def counter_window(on_close=None):
 # Tkinter setup
@@ -698,27 +804,81 @@ def show_selection_window():
     tk.Radiobutton(mode_frame, text="Use Today's Data", variable=mode_var, value=1).pack(anchor='w')
     tk.Radiobutton(mode_frame, text="Custom Date Range", variable=mode_var, value=2).pack(anchor='w')
 
-    # Date selection for custom range
-    date_frame = tk.Frame(content_frame)
-    date_frame.pack(fill=tk.X, pady=10)
+    # Date and time selection for custom range
+    date_time_frame = tk.Frame(content_frame)
+    date_time_frame.pack(fill=tk.X, pady=10)
+
+    # Start date/time frame
+    start_frame = tk.LabelFrame(date_time_frame, text="Start", padx=5, pady=5)
+    start_frame.grid(row=0, column=0, padx=5, pady=5, sticky='w')
+
+    # Start date
+    start_date_entry = DateEntry(start_frame, date_pattern='yyyy-MM-dd')
+    start_date_entry.grid(row=0, column=0, padx=5, pady=5)
     
-    tk.Label(date_frame, text="Start Date:").grid(row=0, column=0, padx=5, pady=5, sticky='e')
-    start_entry = DateEntry(date_frame, date_pattern='yyyy-MM-dd')
-    start_entry.grid(row=0, column=1, padx=5, pady=5, sticky='w')
+    # Start time
+    start_time_frame = tk.Frame(start_frame)
+    start_time_frame.grid(row=0, column=1, padx=5, pady=5)
     
-    tk.Label(date_frame, text="End Date:").grid(row=1, column=0, padx=5, pady=5, sticky='e')
-    end_entry = DateEntry(date_frame, date_pattern='yyyy-MM-dd')
-    end_entry.grid(row=1, column=1, padx=5, pady=5, sticky='w')
+    start_hour = tk.Spinbox(start_time_frame, from_=0, to=23, width=2, format="%02.0f")
+    start_hour.grid(row=0, column=0)
+    start_hour.delete(0, tk.END)
+    start_hour.insert(0, "00")
+    
+    tk.Label(start_time_frame, text=":").grid(row=0, column=1)
+    
+    start_min = tk.Spinbox(start_time_frame, from_=0, to=59, width=2, format="%02.0f")
+    start_min.grid(row=0, column=2)
+    start_min.delete(0, tk.END)
+    start_min.insert(0, "00")
+    
+    tk.Label(start_time_frame, text=":").grid(row=0, column=3)
+    
+    start_sec = tk.Spinbox(start_time_frame, from_=0, to=59, width=2, format="%02.0f")
+    start_sec.grid(row=0, column=4)
+    start_sec.delete(0, tk.END)
+    start_sec.insert(0, "00")
+    
+    # End date/time frame
+    end_frame = tk.LabelFrame(date_time_frame, text="End", padx=5, pady=5)
+    end_frame.grid(row=1, column=0, padx=5, pady=5, sticky='w')
+    
+    # End date
+    end_date_entry = DateEntry(end_frame, date_pattern='yyyy-MM-dd')
+    end_date_entry.grid(row=0, column=0, padx=5, pady=5)
+    
+    # End time
+    end_time_frame = tk.Frame(end_frame)
+    end_time_frame.grid(row=0, column=1, padx=5, pady=5)
+    
+    end_hour = tk.Spinbox(end_time_frame, from_=0, to=23, width=2, format="%02.0f")
+    end_hour.grid(row=0, column=0)
+    end_hour.delete(0, tk.END)
+    end_hour.insert(0, "23")
+    
+    tk.Label(end_time_frame, text=":").grid(row=0, column=1)
+    
+    end_min = tk.Spinbox(end_time_frame, from_=0, to=59, width=2, format="%02.0f")
+    end_min.grid(row=0, column=2)
+    end_min.delete(0, tk.END)
+    end_min.insert(0, "59")
+    
+    tk.Label(end_time_frame, text=":").grid(row=0, column=3)
+    
+    end_sec = tk.Spinbox(end_time_frame, from_=0, to=59, width=2, format="%02.0f")
+    end_sec.grid(row=0, column=4)
+    end_sec.delete(0, tk.END)
+    end_sec.insert(0, "59")
     
     # Initially hide the date entries
-    date_frame.pack_forget()
+    date_time_frame.pack_forget()
     
     # Show/hide date entries based on mode selection
     def on_mode_change(*_):
         if mode_var.get() == 2:
-            date_frame.pack(fill=tk.X, pady=10)
+            date_time_frame.pack(fill=tk.X, pady=10)
         else:
-            date_frame.pack_forget()
+            date_time_frame.pack_forget()
 
     mode_var.trace_add('write', on_mode_change)
 
@@ -777,8 +937,17 @@ def show_selection_window():
         
 
         try:
-            s = start_entry.get_date().isoformat() + "T00:00:00"
-            e = end_entry.get_date().isoformat() + "T23:59:59"
+            # Get start date and time
+            start_date = start_date_entry.get_date()
+            start_time = f"{start_hour.get().zfill(2)}:{start_min.get().zfill(2)}:{start_sec.get().zfill(2)}"
+            
+            # Get end date and time
+            end_date = end_date_entry.get_date()
+            end_time = f"{end_hour.get().zfill(2)}:{end_min.get().zfill(2)}:{end_sec.get().zfill(2)}"
+            
+            # Format the complete timestamps
+            s = f"{start_date.isoformat()}T{start_time}"
+            e = f"{end_date.isoformat()}T{end_time}"
 
             # Reset counts
             enter_count = [0, 0]
@@ -1012,10 +1181,6 @@ def show_selection_window():
         counts = []
         
         for row in data:
-            # if resolution == "day":
-            #     dt = datetime.strptime(row[0], "%Y-%m-%d")
-            # else:
-            #     dt = datetime.strptime(row[0], format_string)
             try:
                 if resolution == "day":
                     dt = datetime.strptime(row[0], "%Y-%m-%d")

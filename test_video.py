@@ -12,7 +12,7 @@ import torch
 from tracker import Tracker
 
 # Video testing setup
-VIDEO_NAME = 'test_clash.mp4'
+VIDEO_NAME = 'test_people.mp4'
 VIDEO_PATH = os.path.join('.', 'video', f'{VIDEO_NAME}')
 VIDEO_OUT_PATH = os.path.join('.', 'video', f'predicted_{VIDEO_NAME.split(".")[0]}.mp4')
 
@@ -305,7 +305,7 @@ def video_processing_crowd():
     tracked_ids = {}
     last_seen = {}
     frame_idx = 0
-    MAX_MISSING = 400  # Number of frames before considering a track lost
+    MAX_MISSING = 30  # Number of frames before considering a track lost
     frame_rate_buffer = []
     avg_frame_rate = 0
     colors = [(random.randint(0, 255), random.randint(0, 255), random.randint(0, 255)) for _ in range(100)]
@@ -366,7 +366,8 @@ def video_processing_crowd():
             frame,
             verbose=False,
             classes=[0],  # Track people only
-            conf=0.7,
+            conf=0.65,
+            persist=True,
             tracker="custom_tracker.yaml"
         )
 

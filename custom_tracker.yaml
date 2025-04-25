@@ -19,4 +19,4 @@ gmc_method: sparseOptFlow # method of global motion compensation
 proximity_thresh: 0.2 # minimum IoU for valid match with ReID
 appearance_thresh: 0.5 # minimum appearance similarity for ReID
 with_reid: True
-model: "osnet_ain_x1_0.pt" # uses native features if detector is YOLO else yolo11n-cls.pt
+model: auto # uses native features if detector is YOLO else yolo11n-cls.pt
