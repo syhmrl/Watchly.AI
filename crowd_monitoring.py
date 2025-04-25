@@ -33,7 +33,7 @@ CAMERA_SOURCES = [
 ]
 
 # Model used
-MODEL_NAME = "yolo11n.pt"
+MODEL_NAME = "yolo11s.pt"
 
 # Setup frame size
 FRAME_WIDTH = 1280
@@ -56,6 +56,78 @@ fps_avg_len = 200
 # Count mode
 COUNT_MODE = "line"  # "line" or "crowd"
 
+# Recording settings
+ENABLE_RAW_RECORDING = True
+ENABLE_PREDICTED_RECORDING = True
+
+# Add these constants at the beginning of your file where other constants are defined
+INITIAL_ZOOM = 1.0  # No zoom by default
+MAX_ZOOM = 5.0      # Maximum zoom level
+ZOOM_STEP = 0.1     # How much to change zoom per key press
+
+# Add this class to handle zoom parameters
+class ZoomController:
+    def __init__(self):
+        self.zoom_factor = INITIAL_ZOOM  # Current zoom level
+        self.zoom_center_x = 0.5         # Center point of zoom (normalized 0-1)
+        self.zoom_center_y = 0.5         # Center point of zoom (normalized 0-1)
+        self.pan_step = 0.02             # How much to pan per key press
+
+    def increase_zoom(self):
+        self.zoom_factor = min(self.zoom_factor + ZOOM_STEP, MAX_ZOOM)
+        return self.zoom_factor
+        
+    def decrease_zoom(self):
+        self.zoom_factor = max(self.zoom_factor - ZOOM_STEP, 1.0)
+        return self.zoom_factor
+    
+    def pan_left(self):
+        self.zoom_center_x = max(self.zoom_center_x - self.pan_step, 0.0)
+        
+    def pan_right(self):
+        self.zoom_center_x = min(self.zoom_center_x + self.pan_step, 1.0)
+        
+    def pan_up(self):
+        self.zoom_center_y = max(self.zoom_center_y - self.pan_step, 0.0)
+        
+    def pan_down(self):
+        self.zoom_center_y = min(self.zoom_center_y + self.pan_step, 1.0)
+    
+    def apply_zoom(self, frame):
+        """Apply digital zoom to the frame"""
+        if self.zoom_factor <= 1.0:
+            return frame  # No zoom needed
+            
+        # Get frame dimensions
+        h, w = frame.shape[:2]
+        
+        # Calculate the region of interest based on zoom factor and center point
+        # The higher the zoom, the smaller the ROI
+        roi_size = 1.0 / self.zoom_factor
+        
+        # Calculate the top-left corner of the ROI
+        x1 = int(w * (self.zoom_center_x - roi_size/2))
+        y1 = int(h * (self.zoom_center_y - roi_size/2))
+        
+        # Calculate the bottom-right corner of the ROI
+        x2 = int(w * (self.zoom_center_x + roi_size/2))
+        y2 = int(h * (self.zoom_center_y + roi_size/2))
+        
+        # Ensure ROI is within the frame boundaries
+        x1 = max(0, x1)
+        y1 = max(0, y1)
+        x2 = min(w, x2)
+        y2 = min(h, y2)
+        
+        # Extract the ROI
+        roi = frame[y1:y2, x1:x2]
+        
+        # Resize the ROI to the original frame size
+        if roi.size > 0:  # Check if ROI is not empty
+            return cv2.resize(roi, (w, h), interpolation=cv2.INTER_LINEAR)
+        else:
+            return frame  # Return original frame if ROI is invalid
+
 # Thread control
 class ThreadControl:
     def __init__(self):
@@ -65,6 +137,8 @@ class ThreadControl:
         self.pending_inserts = []
         self.video_window_open = set()
         self.reset()
+        # Add zoom controllers for each camera
+        self.zoom_controllers = [ZoomController() for _ in range(len(CAMERA_SOURCES))]
     
     def reset(self):
         """Reset all thread states and counters"""
@@ -93,7 +167,9 @@ class Database:
         self._connection = sqlite3.connect('watchly_ai.db', check_same_thread=False)
         self._cursor = self._connection.cursor()
         
-        self._cursor.execute("DROP TABLE IF EXISTS crossing_events") 
+        # Use when you to clear table contents
+        # self._cursor.execute("DROP TABLE IF EXISTS crossing_events")
+         
         # Initialize schema
         self._cursor.execute('''
             CREATE TABLE IF NOT EXISTS crossing_events (
@@ -132,14 +208,55 @@ def capture_frames(source_index):
         print(f"Successfully opened video source for {source_name}")
 
     cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # Reduce buffer size for lower latency
-    
-    # Setup video writer if recording is enabled
-    output_filename = f"video/recording_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
-    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-    out = cv2.VideoWriter(output_filename, fourcc, 15.0, FRAME_SIZE)
+
+    if ENABLE_RAW_RECORDING:
+        # Get actual frame size from the camera
+        actual_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        actual_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        actual_fps = cap.get(cv2.CAP_PROP_FPS)
+
+        # Use consistent frame rate
+        if actual_fps <= 0:
+            actual_fps = 15.0  # Fallback FPS if not detected
+        # Create directories if they don't exist
+        os.makedirs("video/raw", exist_ok=True)
+        
+        # Setup video writer if recording is enabled
+        raw_filename = f"video/raw/raw_{source_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
+
+         # Try different codecs if one doesn't work
+        try:
+            # Try H264 first (more compatible)
+            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+            raw_out = cv2.VideoWriter(raw_filename, fourcc, actual_fps, (actual_width, actual_height))
+            
+            # Check if writer opened successfully
+            if not raw_out.isOpened():
+                # If MP4V fails, try H264
+                fourcc = cv2.VideoWriter_fourcc(*'H264')
+                raw_out = cv2.VideoWriter(raw_filename, fourcc, actual_fps, (FRAME_WIDTH, FRAME_HEIGHT))
+                
+                # If still not working, try XVID
+                if not raw_out.isOpened():
+                    fourcc = cv2.VideoWriter_fourcc(*'XVID')
+                    raw_out = cv2.VideoWriter(raw_filename.replace('.mp4', '.avi'), fourcc, actual_fps, (FRAME_WIDTH, FRAME_HEIGHT))
+        except Exception as e:
+            print(f"Error creating video writer: {e}")
+            # Last resort - MJPG in AVI container
+            fourcc = cv2.VideoWriter_fourcc(*'MJPG')
+            raw_out = cv2.VideoWriter(raw_filename.replace('.mp4', '.avi'), fourcc, actual_fps, (FRAME_WIDTH, FRAME_HEIGHT))
+        
+        if not raw_out.isOpened():
+            print(f"WARNING: Failed to create video writer for {source_name}. Recording disabled.")
+            raw_out = None
+        else:
+            print(f"Successfully created video writer for {source_name} raw frames")
     
     while not thread_controller.stop_event.is_set():
         ret, frame = cap.read()
+
+        # frame = cv2.flip(frame, 1)
+
         if not ret:
             print(f"Failed to get frame from {source_name}")
             time.sleep(1)  # Wait before retrying
@@ -149,7 +266,8 @@ def capture_frames(source_index):
             continue
             
         # Save frame to video if recording
-        out.write(frame)
+        if ENABLE_RAW_RECORDING and raw_out is not None and raw_out.isOpened(): 
+            raw_out.write(frame)
         
         try:
             # Put frame in queue, replace if full
@@ -164,7 +282,8 @@ def capture_frames(source_index):
     
     # Clean up resources
     cap.release()
-    out.release()
+    if ENABLE_RAW_RECORDING and raw_out is not None: 
+        raw_out.release()
     print(f"Frame capture thread for {source_name} stopped")
 
 # Database insert function
@@ -207,7 +326,7 @@ def video_processing_line(source_index):
     previous_centroids = {}
     last_seen = {}
     frame_idx = 0
-    MAX_MISSING = 10  # Number of frames before considering a track lost
+    MAX_MISSING = 400  # Number of frames before considering a track lost
     frame_rate_buffer = []
     avg_frame_rate = 0
     colors = [(random.randint(0, 255), random.randint(0, 255), random.randint(0, 255)) for _ in range(100)]
@@ -232,7 +351,7 @@ def video_processing_line(source_index):
             frame,
             verbose=False,
             classes=[0],  # Track people only
-            conf=0.5,
+            conf=0.7,
             stream=True,
             stream_buffer=True,
             persist=True,
@@ -341,32 +460,67 @@ def video_processing_crowd(source_index):
     tracked_ids = {}
     last_seen = {}
     frame_idx = 0
-    MAX_MISSING = 300  # Number of frames before considering a track lost
+    MAX_MISSING = 400  # Number of frames before considering a track lost
     frame_rate_buffer = []
     avg_frame_rate = 0
     colors = [(random.randint(0, 255), random.randint(0, 255), random.randint(0, 255)) for _ in range(100)]
 
     # Add minimum detection threshold
-    MIN_DETECTIONS = 3  # Require this many consecutive detections before counting
+    MIN_DETECTIONS = 5  # Require this many consecutive detections before counting
     
     # Add to your tracking data structures
     detection_count = {}  # track_id -> consecutive detection count
 
-    # Create persistent ID tracking
-    persistent_identities = {}  # Will store appearance features and metadata
-    
-    # Time period to remember people who left the frame (in seconds)
-    IDENTITY_MEMORY_DURATION = 60  # Remember for 1 minute
-    
-    # Maximum distance for identity matching
-    MAX_REIDENTIFICATION_DISTANCE = 0.35
-    
-    # Track FPS to convert frame counts to time
-    current_fps = 15  # Initial estimate, will be updated
+    # Get zoom controller for this source
+    zoom_controller = thread_controller.zoom_controllers[source_index]
+
+    if ENABLE_PREDICTED_RECORDING:
+        # Set a consistent frame rate for recording
+        recording_fps = 15.0
+
+        # Create directories if they don't exist
+        os.makedirs("video/processed", exist_ok=True)
+
+        # Setup video writer for processed frames
+        processed_filename = f"video/processed/processed_{source_name}_crowd_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
+        # Try different codecs if one doesn't work
+        try:
+            # Try MP4V first (more compatible)
+            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+            processed_out = cv2.VideoWriter(processed_filename, fourcc, recording_fps, (FRAME_WIDTH, FRAME_HEIGHT))
+            
+            # Check if writer opened successfully
+            if not processed_out.isOpened():
+                # If MP4V fails, try H264
+                fourcc = cv2.VideoWriter_fourcc(*'H264')
+                processed_out = cv2.VideoWriter(processed_filename, fourcc, recording_fps, (FRAME_WIDTH, FRAME_HEIGHT))
+                
+                # If still not working, try XVID
+                if not processed_out.isOpened():
+                    fourcc = cv2.VideoWriter_fourcc(*'XVID')
+                    processed_out = cv2.VideoWriter(processed_filename.replace('.mp4', '.avi'), fourcc, recording_fps, (FRAME_WIDTH, FRAME_HEIGHT))
+        except Exception as e:
+            print(f"Error creating video writer: {e}")
+            # Last resort - MJPG in AVI container
+            fourcc = cv2.VideoWriter_fourcc(*'MJPG')
+            processed_out = cv2.VideoWriter(processed_filename.replace('.mp4', '.avi'), fourcc, recording_fps, (FRAME_WIDTH, FRAME_HEIGHT))
+        
+        if not processed_out.isOpened():
+            print(f"WARNING: Failed to create video writer for {source_name} processed frames. Recording disabled.")
+            processed_out = None
+        else:
+            print(f"Successfully created video writer for {source_name} processed frames")
     
     # Make OpenCV window a normal window that can be closed
     cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
     thread_controller.video_window_open = True
+
+    # Print zoom controls instruction
+    print(f"Zoom Controls for {window_name}:")
+    print("  + : Zoom in")
+    print("  - : Zoom out")
+    print("  Arrow keys: Pan the view")
+    print("  R : Reset zoom")
     
     while not thread_controller.stop_event.is_set():
         t_start = time.perf_counter()
@@ -378,25 +532,31 @@ def video_processing_crowd(source_index):
 
         frame_idx += 1
 
+        # Apply digital zoom before any processing
+        frame = zoom_controller.apply_zoom(frame)
+
+
         # Process the frame
         frame = cv2.resize(frame, FRAME_SIZE)
         results = thread_model.track(
             frame,
             verbose=False,
             classes=[0],  # Track people only
-            conf=0.5,
+            conf=0.7,
             stream=True,
             stream_buffer=True,
             persist=True,
             tracker="custom_tracker.yaml"
         )
 
+        # frame = cv2.flip(frame, 1)
+
+        # Create a copy of the frame for visualization and recording
+        visualization_frame = frame.copy()
+
         seen_ids = set()
 
         for result in results:
-
-            if result.boxes is None or len(result.boxes) == 0:
-                continue  # Skip frames with no detections
 
             for box in result.boxes:
                 
@@ -427,8 +587,8 @@ def video_processing_crowd(source_index):
 
                 # Draw bounding box and ID
                 color = colors[track_id % len(colors)]
-                cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
-                cv2.putText(frame, f"ID: {track_id}", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+                cv2.rectangle(visualization_frame, (x1, y1), (x2, y2), color, 2)
+                cv2.putText(visualization_frame, f"ID: {track_id}", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
 
         # Clean up tracks that haven't been seen recently
         for tid in list(last_seen):
@@ -440,7 +600,7 @@ def video_processing_crowd(source_index):
             # Note: We don't remove from tracked_ids to avoid recounting
 
         # Display counters
-        cv2.putText(frame, f"Crowd Count: {crowd_count[source_index]}", (10, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+        cv2.putText(visualization_frame, f"Crowd Count: {crowd_count[source_index]}", (10, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
 
         # Calculate and display FPS
         t_stop = time.perf_counter()
@@ -449,11 +609,33 @@ def video_processing_crowd(source_index):
         if len(frame_rate_buffer) > fps_avg_len:
             frame_rate_buffer.pop(0)
         avg_frame_rate = np.mean(frame_rate_buffer)
-        cv2.putText(frame, f"FPS: {avg_frame_rate:.1f}", (10, FRAME_HEIGHT - 20), 
+        cv2.putText(visualization_frame, f"FPS: {avg_frame_rate:.1f}", (10, FRAME_HEIGHT - 20), 
                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+        
+        # Write processed frame to video
+        if ENABLE_PREDICTED_RECORDING and processed_out is not None and processed_out.isOpened(): 
+            processed_out.write(visualization_frame)
 
-        cv2.imshow(window_name, frame)
+        cv2.imshow(window_name, visualization_frame)
         key = cv2.waitKey(1) & 0xFF
+
+        # Handle zoom controls
+        if key == ord('+') or key == ord('='):  # Zoom in with + or = key
+            zoom_controller.increase_zoom()
+        elif key == ord('-') or key == ord('_'):  # Zoom out with - or _ key
+            zoom_controller.decrease_zoom()
+        elif key == ord('r') or key == ord('R'):  # Reset zoom with R key
+            zoom_controller.zoom_factor = INITIAL_ZOOM
+            zoom_controller.zoom_center_x = 0.5
+            zoom_controller.zoom_center_y = 0.5
+        elif key == 0x51:  # Left arrow
+            zoom_controller.pan_left()
+        elif key == 0x53:  # Right arrow
+            zoom_controller.pan_right()
+        elif key == 0x52:  # Up arrow
+            zoom_controller.pan_up()
+        elif key == 0x54:  # Down arrow
+            zoom_controller.pan_down()
         
         # Handle window close or ESC key
         if key == 27 or cv2.getWindowProperty(window_name, cv2.WND_PROP_VISIBLE) < 1:
@@ -461,10 +643,18 @@ def video_processing_crowd(source_index):
             break
     
     # Clean up
-    cv2.destroyAllWindows(window_name)
+    if ENABLE_PREDICTED_RECORDING and processed_out is not None: 
+        processed_out.release()
+
+    # Safer window destruction
+    try:
+        if cv2.getWindowProperty(window_name, cv2.WND_PROP_VISIBLE) >= 0:
+            cv2.destroyWindow(window_name)  # Destroy specific window instead of all
+    except cv2.error:
+        pass  # Window was already closed by user
+
     thread_controller.video_window_open = False
     print(f"Video processing thread for {source_name} stopped")
-
 
 def counter_window(on_close=None):
 # Tkinter setup
@@ -614,27 +804,81 @@ def show_selection_window():
     tk.Radiobutton(mode_frame, text="Use Today's Data", variable=mode_var, value=1).pack(anchor='w')
     tk.Radiobutton(mode_frame, text="Custom Date Range", variable=mode_var, value=2).pack(anchor='w')
 
-    # Date selection for custom range
-    date_frame = tk.Frame(content_frame)
-    date_frame.pack(fill=tk.X, pady=10)
+    # Date and time selection for custom range
+    date_time_frame = tk.Frame(content_frame)
+    date_time_frame.pack(fill=tk.X, pady=10)
+
+    # Start date/time frame
+    start_frame = tk.LabelFrame(date_time_frame, text="Start", padx=5, pady=5)
+    start_frame.grid(row=0, column=0, padx=5, pady=5, sticky='w')
+
+    # Start date
+    start_date_entry = DateEntry(start_frame, date_pattern='yyyy-MM-dd')
+    start_date_entry.grid(row=0, column=0, padx=5, pady=5)
     
-    tk.Label(date_frame, text="Start Date:").grid(row=0, column=0, padx=5, pady=5, sticky='e')
-    start_entry = DateEntry(date_frame, date_pattern='yyyy-MM-dd')
-    start_entry.grid(row=0, column=1, padx=5, pady=5, sticky='w')
+    # Start time
+    start_time_frame = tk.Frame(start_frame)
+    start_time_frame.grid(row=0, column=1, padx=5, pady=5)
     
-    tk.Label(date_frame, text="End Date:").grid(row=1, column=0, padx=5, pady=5, sticky='e')
-    end_entry = DateEntry(date_frame, date_pattern='yyyy-MM-dd')
-    end_entry.grid(row=1, column=1, padx=5, pady=5, sticky='w')
+    start_hour = tk.Spinbox(start_time_frame, from_=0, to=23, width=2, format="%02.0f")
+    start_hour.grid(row=0, column=0)
+    start_hour.delete(0, tk.END)
+    start_hour.insert(0, "00")
+    
+    tk.Label(start_time_frame, text=":").grid(row=0, column=1)
+    
+    start_min = tk.Spinbox(start_time_frame, from_=0, to=59, width=2, format="%02.0f")
+    start_min.grid(row=0, column=2)
+    start_min.delete(0, tk.END)
+    start_min.insert(0, "00")
+    
+    tk.Label(start_time_frame, text=":").grid(row=0, column=3)
+    
+    start_sec = tk.Spinbox(start_time_frame, from_=0, to=59, width=2, format="%02.0f")
+    start_sec.grid(row=0, column=4)
+    start_sec.delete(0, tk.END)
+    start_sec.insert(0, "00")
+    
+    # End date/time frame
+    end_frame = tk.LabelFrame(date_time_frame, text="End", padx=5, pady=5)
+    end_frame.grid(row=1, column=0, padx=5, pady=5, sticky='w')
+    
+    # End date
+    end_date_entry = DateEntry(end_frame, date_pattern='yyyy-MM-dd')
+    end_date_entry.grid(row=0, column=0, padx=5, pady=5)
+    
+    # End time
+    end_time_frame = tk.Frame(end_frame)
+    end_time_frame.grid(row=0, column=1, padx=5, pady=5)
+    
+    end_hour = tk.Spinbox(end_time_frame, from_=0, to=23, width=2, format="%02.0f")
+    end_hour.grid(row=0, column=0)
+    end_hour.delete(0, tk.END)
+    end_hour.insert(0, "23")
+    
+    tk.Label(end_time_frame, text=":").grid(row=0, column=1)
+    
+    end_min = tk.Spinbox(end_time_frame, from_=0, to=59, width=2, format="%02.0f")
+    end_min.grid(row=0, column=2)
+    end_min.delete(0, tk.END)
+    end_min.insert(0, "59")
+    
+    tk.Label(end_time_frame, text=":").grid(row=0, column=3)
+    
+    end_sec = tk.Spinbox(end_time_frame, from_=0, to=59, width=2, format="%02.0f")
+    end_sec.grid(row=0, column=4)
+    end_sec.delete(0, tk.END)
+    end_sec.insert(0, "59")
     
     # Initially hide the date entries
-    date_frame.pack_forget()
+    date_time_frame.pack_forget()
     
     # Show/hide date entries based on mode selection
     def on_mode_change(*_):
         if mode_var.get() == 2:
-            date_frame.pack(fill=tk.X, pady=10)
+            date_time_frame.pack(fill=tk.X, pady=10)
         else:
-            date_frame.pack_forget()
+            date_time_frame.pack_forget()
 
     mode_var.trace_add('write', on_mode_change)
 
@@ -693,8 +937,17 @@ def show_selection_window():
         
 
         try:
-            s = start_entry.get_date().isoformat() + "T00:00:00"
-            e = end_entry.get_date().isoformat() + "T23:59:59"
+            # Get start date and time
+            start_date = start_date_entry.get_date()
+            start_time = f"{start_hour.get().zfill(2)}:{start_min.get().zfill(2)}:{start_sec.get().zfill(2)}"
+            
+            # Get end date and time
+            end_date = end_date_entry.get_date()
+            end_time = f"{end_hour.get().zfill(2)}:{end_min.get().zfill(2)}:{end_sec.get().zfill(2)}"
+            
+            # Format the complete timestamps
+            s = f"{start_date.isoformat()}T{start_time}"
+            e = f"{end_date.isoformat()}T{end_time}"
 
             # Reset counts
             enter_count = [0, 0]
@@ -928,10 +1181,6 @@ def show_selection_window():
         counts = []
         
         for row in data:
-            # if resolution == "day":
-            #     dt = datetime.strptime(row[0], "%Y-%m-%d")
-            # else:
-            #     dt = datetime.strptime(row[0], format_string)
             try:
                 if resolution == "day":
                     dt = datetime.strptime(row[0], "%Y-%m-%d")

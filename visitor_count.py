@@ -57,8 +57,8 @@ fps_avg_len = 200
 COUNT_MODE = "line"  # "line" or "crowd"
 
 # Recording settings
-ENABLE_RAW_RECORDING = True
-ENABLE_PREDICTED_RECORDING = True
+ENABLE_RAW_RECORDING = False
+ENABLE_PREDICTED_RECORDING = False
 
 # Add these constants at the beginning of your file where other constants are defined
 INITIAL_ZOOM = 1.0  # No zoom by default
@@ -80,18 +80,6 @@ class ZoomController:
     def decrease_zoom(self):
         self.zoom_factor = max(self.zoom_factor - ZOOM_STEP, 1.0)
         return self.zoom_factor
-    
-    def pan_left(self):
-        self.zoom_center_x = max(self.zoom_center_x - self.pan_step, 0.0)
-        
-    def pan_right(self):
-        self.zoom_center_x = min(self.zoom_center_x + self.pan_step, 1.0)
-        
-    def pan_up(self):
-        self.zoom_center_y = max(self.zoom_center_y - self.pan_step, 0.0)
-        
-    def pan_down(self):
-        self.zoom_center_y = min(self.zoom_center_y + self.pan_step, 1.0)
     
     def apply_zoom(self, frame):
         """Apply digital zoom to the frame"""
@@ -139,6 +127,8 @@ class ThreadControl:
         self.reset()
         # Add zoom controllers for each camera
         self.zoom_controllers = [ZoomController() for _ in range(len(CAMERA_SOURCES))]
+        self.enable_visual = True
+        self.enable_processed_frame_recording = False
     
     def reset(self):
         """Reset all thread states and counters"""
@@ -474,42 +464,11 @@ def video_processing_crowd(source_index):
     # Get zoom controller for this source
     zoom_controller = thread_controller.zoom_controllers[source_index]
 
-    if ENABLE_PREDICTED_RECORDING:
-        # Set a consistent frame rate for recording
-        recording_fps = 15.0
-
-        # Create directories if they don't exist
-        os.makedirs("video/processed", exist_ok=True)
-
-        # Setup video writer for processed frames
-        processed_filename = f"video/processed/processed_{source_name}_crowd_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
-        # Try different codecs if one doesn't work
-        try:
-            # Try MP4V first (more compatible)
-            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-            processed_out = cv2.VideoWriter(processed_filename, fourcc, recording_fps, (FRAME_WIDTH, FRAME_HEIGHT))
-            
-            # Check if writer opened successfully
-            if not processed_out.isOpened():
-                # If MP4V fails, try H264
-                fourcc = cv2.VideoWriter_fourcc(*'H264')
-                processed_out = cv2.VideoWriter(processed_filename, fourcc, recording_fps, (FRAME_WIDTH, FRAME_HEIGHT))
-                
-                # If still not working, try XVID
-                if not processed_out.isOpened():
-                    fourcc = cv2.VideoWriter_fourcc(*'XVID')
-                    processed_out = cv2.VideoWriter(processed_filename.replace('.mp4', '.avi'), fourcc, recording_fps, (FRAME_WIDTH, FRAME_HEIGHT))
-        except Exception as e:
-            print(f"Error creating video writer: {e}")
-            # Last resort - MJPG in AVI container
-            fourcc = cv2.VideoWriter_fourcc(*'MJPG')
-            processed_out = cv2.VideoWriter(processed_filename.replace('.mp4', '.avi'), fourcc, recording_fps, (FRAME_WIDTH, FRAME_HEIGHT))
-        
-        if not processed_out.isOpened():
-            print(f"WARNING: Failed to create video writer for {source_name} processed frames. Recording disabled.")
-            processed_out = None
-        else:
-            print(f"Successfully created video writer for {source_name} processed frames")
+    recording_fps = 15.0
+    os.makedirs("video/processed", exist_ok=True)
+    processed_filename = f"video/processed/processed_{source_name}_crowd_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+    processed_out = cv2.VideoWriter(processed_filename, fourcc, recording_fps, (FRAME_WIDTH, FRAME_HEIGHT))
     
     # Make OpenCV window a normal window that can be closed
     cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
@@ -521,6 +480,9 @@ def video_processing_crowd(source_index):
     print("  - : Zoom out")
     print("  Arrow keys: Pan the view")
     print("  R : Reset zoom")
+    print(f"Other Controls:")
+    print("  Q : Record Video")
+    print("  V : Reset zoom")
     
     while not thread_controller.stop_event.is_set():
         t_start = time.perf_counter()
@@ -534,7 +496,6 @@ def video_processing_crowd(source_index):
 
         # Apply digital zoom before any processing
         frame = zoom_controller.apply_zoom(frame)
-
 
         # Process the frame
         frame = cv2.resize(frame, FRAME_SIZE)
@@ -586,9 +547,10 @@ def video_processing_crowd(source_index):
                     thread_controller.pending_inserts.append((source_identifier, track_id, 'enter', timestamp, 'crowd'))
 
                 # Draw bounding box and ID
-                color = colors[track_id % len(colors)]
-                cv2.rectangle(visualization_frame, (x1, y1), (x2, y2), color, 2)
-                cv2.putText(visualization_frame, f"ID: {track_id}", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+                if thread_controller.enable_visual:
+                    color = colors[track_id % len(colors)]
+                    cv2.rectangle(visualization_frame, (x1, y1), (x2, y2), color, 2)
+                    cv2.putText(visualization_frame, f"ID: {track_id}", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
 
         # Clean up tracks that haven't been seen recently
         for tid in list(last_seen):
@@ -609,11 +571,13 @@ def video_processing_crowd(source_index):
         if len(frame_rate_buffer) > fps_avg_len:
             frame_rate_buffer.pop(0)
         avg_frame_rate = np.mean(frame_rate_buffer)
+
+
         cv2.putText(visualization_frame, f"FPS: {avg_frame_rate:.1f}", (10, FRAME_HEIGHT - 20), 
                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
         
         # Write processed frame to video
-        if ENABLE_PREDICTED_RECORDING and processed_out is not None and processed_out.isOpened(): 
+        if thread_controller.enable_processed_frame_recording and processed_out is not None and processed_out.isOpened(): 
             processed_out.write(visualization_frame)
 
         cv2.imshow(window_name, visualization_frame)
@@ -628,14 +592,12 @@ def video_processing_crowd(source_index):
             zoom_controller.zoom_factor = INITIAL_ZOOM
             zoom_controller.zoom_center_x = 0.5
             zoom_controller.zoom_center_y = 0.5
-        elif key == 0x51:  # Left arrow
-            zoom_controller.pan_left()
-        elif key == 0x53:  # Right arrow
-            zoom_controller.pan_right()
-        elif key == 0x52:  # Up arrow
-            zoom_controller.pan_up()
-        elif key == 0x54:  # Down arrow
-            zoom_controller.pan_down()
+        elif key == ord('v') or key == ord('V'):
+            thread_controller.enable_visual = not thread_controller.enable_visual
+            print(f"Visualization {'enabled' if thread_controller.enable_visual else 'disabled'}")
+        elif key == ord('q') or key == ord('Q'):
+            thread_controller.enable_processed_frame_recording = not thread_controller.enable_processed_frame_recording
+            print(f"Recording {'started' if thread_controller.enable_processed_frame_recording else 'end'} {datetime.now().strftime('%Y%m%d_%H%M%S')}")
         
         # Handle window close or ESC key
         if key == 27 or cv2.getWindowProperty(window_name, cv2.WND_PROP_VISIBLE) < 1:
@@ -643,7 +605,7 @@ def video_processing_crowd(source_index):
             break
     
     # Clean up
-    if ENABLE_PREDICTED_RECORDING and processed_out is not None: 
+    if thread_controller.enable_processed_frame_recording and processed_out is not None: 
         processed_out.release()
 
     # Safer window destruction
