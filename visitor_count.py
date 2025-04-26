@@ -28,12 +28,12 @@ RTSP_URL = [
 # Source of the Video/Stream
 # VIDEO_SOURCE = 0
 CAMERA_SOURCES = [
-    RTSP_URL[0],
+    0,#RTSP_URL[0],
     None
 ]
 
 # Model used
-MODEL_NAME = "yolo11s.pt"
+MODEL_NAME = "yolo11l.pt"
 
 # Setup frame size
 FRAME_WIDTH = 1280
@@ -61,9 +61,28 @@ ENABLE_RAW_RECORDING = False
 ENABLE_PREDICTED_RECORDING = False
 
 # Add these constants at the beginning of your file where other constants are defined
-INITIAL_ZOOM = 1.0  # No zoom by default
+INITIAL_ZOOM = 2.2  # No zoom by default
 MAX_ZOOM = 5.0      # Maximum zoom level
 ZOOM_STEP = 0.1     # How much to change zoom per key press
+
+# Region of Interest settings
+ENABLE_ROI = True  # Set to True to only count people in a specific region
+# Define ROI polygons for each camera - customize these coordinates for your setup
+ROI_POINTS = [
+    # np.array([[125, 392], [972, 365], [1, 634], [1246, 489]], np.int32),  # Camera 1
+    np.array([[137, 361], [1043, 358], [1273, 646],[0, 681]], np.int32),
+    np.array([[137, 361], [1043, 358], [1273, 600],[0, 681]], np.int32),
+]
+for i in range(len(ROI_POINTS)):
+    ROI_POINTS[i] = ROI_POINTS[i].reshape((-1, 1, 2))
+
+# Get mouse coordinate
+def RGB(event, x, y, flags, param):
+    if event == cv2.EVENT_MOUSEMOVE :  
+        colorsBGR = [x, y] # x,y current coordinates
+        print(colorsBGR)
+
+
 
 # Add this class to handle zoom parameters
 class ZoomController:
@@ -299,6 +318,16 @@ def insert_to_db():
     
     print("Database thread stopped")
 
+# Add this function to check if a detection is in your ROI
+def is_in_roi(box, roi_points):
+    """Check if the detection is inside the region of interest"""
+    # Get center point of the bottom of the bounding box (person's feet)
+    x1, y1, x2, y2 = map(int, box)
+    foot_point = (int((x1 + x2) / 2), y2)
+    
+    # Check if point is inside polygon
+    return cv2.pointPolygonTest(roi_points, foot_point, False) >= 0
+
 # Video processing function
 def video_processing_line(source_index):
     global enter_count, exit_count, total_enter_count, total_exit_count
@@ -456,7 +485,7 @@ def video_processing_crowd(source_index):
     colors = [(random.randint(0, 255), random.randint(0, 255), random.randint(0, 255)) for _ in range(100)]
 
     # Add minimum detection threshold
-    MIN_DETECTIONS = 5  # Require this many consecutive detections before counting
+    MIN_DETECTIONS = 20  # Require this many consecutive detections before counting
     
     # Add to your tracking data structures
     detection_count = {}  # track_id -> consecutive detection count
@@ -464,16 +493,13 @@ def video_processing_crowd(source_index):
     # Get zoom controller for this source
     zoom_controller = thread_controller.zoom_controllers[source_index]
 
-    recording_fps = 15.0
-    os.makedirs("video/processed", exist_ok=True)
-    processed_filename = f"video/processed/processed_{source_name}_crowd_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
-    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-    processed_out = cv2.VideoWriter(processed_filename, fourcc, recording_fps, (FRAME_WIDTH, FRAME_HEIGHT))
+    processed_out = None
     
     # Make OpenCV window a normal window that can be closed
     cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
-    thread_controller.video_window_open = True
+    #cv2.setMouseCallback(window_name, RGB)
 
+    thread_controller.video_window_open = True
     # Print zoom controls instruction
     print(f"Zoom Controls for {window_name}:")
     print("  + : Zoom in")
@@ -482,7 +508,11 @@ def video_processing_crowd(source_index):
     print("  R : Reset zoom")
     print(f"Other Controls:")
     print("  Q : Record Video")
-    print("  V : Reset zoom")
+    print("  V : Visualization")
+    print("  T : Toggle ROI display") 
+
+    # NEW: ROI visualization toggle
+    show_roi = True
     
     while not thread_controller.stop_event.is_set():
         t_start = time.perf_counter()
@@ -503,7 +533,8 @@ def video_processing_crowd(source_index):
             frame,
             verbose=False,
             classes=[0],  # Track people only
-            conf=0.7,
+            conf=0.5,    # Lower confidence threshold
+            iou=0.5,
             stream=True,
             stream_buffer=True,
             persist=True,
@@ -514,6 +545,13 @@ def video_processing_crowd(source_index):
 
         # Create a copy of the frame for visualization and recording
         visualization_frame = frame.copy()
+
+        # Draw ROI if enabled
+        if ENABLE_ROI and show_roi:
+            cv2.polylines(visualization_frame, [ROI_POINTS[source_index]], True, (0, 255, 0), 2)
+            cv2.putText(visualization_frame, "Target Area", 
+                        tuple(ROI_POINTS[source_index][0][0]), 
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
 
         seen_ids = set()
 
@@ -534,9 +572,12 @@ def video_processing_crowd(source_index):
 
                 # Increment detection counter for this ID
                 detection_count[track_id] = detection_count.get(track_id, 0) + 1
+
+                # Apply ROI check if enabled
+                in_roi = not ENABLE_ROI or is_in_roi(box.xyxy[0].tolist(), ROI_POINTS[source_index])
                 
-                # If this is a new person, count them
-                if track_id not in tracked_ids and detection_count[track_id] >= MIN_DETECTIONS:
+                # If this is a countable person and in ROI (if enabled), count them
+                if  in_roi and track_id not in tracked_ids and detection_count[track_id] >= MIN_DETECTIONS:
                     tracked_ids[track_id] = True
                     crowd_count[source_index] += 1
                     total_crowd_count += 1
@@ -577,8 +618,19 @@ def video_processing_crowd(source_index):
                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
         
         # Write processed frame to video
-        if thread_controller.enable_processed_frame_recording and processed_out is not None and processed_out.isOpened(): 
-            processed_out.write(visualization_frame)
+        if thread_controller.enable_processed_frame_recording and processed_out is None:
+            recording_fps = 20.0
+            os.makedirs("video/processed", exist_ok=True)
+            processed_filename = f"video/processed/processed_{source_name}_crowd_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
+            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+            processed_out = cv2.VideoWriter(processed_filename, fourcc, recording_fps, (FRAME_WIDTH, FRAME_HEIGHT))
+
+        # Write frame to video if recording is active
+        if thread_controller.enable_processed_frame_recording and processed_out is not None:
+            if processed_out.isOpened():
+                processed_out.write(visualization_frame)
+
+        
 
         cv2.imshow(window_name, visualization_frame)
         key = cv2.waitKey(1) & 0xFF
@@ -586,6 +638,7 @@ def video_processing_crowd(source_index):
         # Handle zoom controls
         if key == ord('+') or key == ord('='):  # Zoom in with + or = key
             zoom_controller.increase_zoom()
+            print(f"initial zoom: {zoom_controller.zoom_factor}")
         elif key == ord('-') or key == ord('_'):  # Zoom out with - or _ key
             zoom_controller.decrease_zoom()
         elif key == ord('r') or key == ord('R'):  # Reset zoom with R key
@@ -597,7 +650,14 @@ def video_processing_crowd(source_index):
             print(f"Visualization {'enabled' if thread_controller.enable_visual else 'disabled'}")
         elif key == ord('q') or key == ord('Q'):
             thread_controller.enable_processed_frame_recording = not thread_controller.enable_processed_frame_recording
-            print(f"Recording {'started' if thread_controller.enable_processed_frame_recording else 'end'} {datetime.now().strftime('%Y%m%d_%H%M%S')}")
+            # If we're turning off recording, release the video writer
+            if not thread_controller.enable_processed_frame_recording and processed_out is not None:
+                processed_out.release()
+                processed_out = None
+            
+            print(f"Recording {'started' if thread_controller.enable_processed_frame_recording else 'ended'} {datetime.now().strftime('%Y%m%d_%H%M%S')}")
+        elif key == ord('t') or key == ord('T'):  # Toggle ROI display
+            show_roi = not show_roi
         
         # Handle window close or ESC key
         if key == 27 or cv2.getWindowProperty(window_name, cv2.WND_PROP_VISIBLE) < 1:
@@ -605,7 +665,7 @@ def video_processing_crowd(source_index):
             break
     
     # Clean up
-    if thread_controller.enable_processed_frame_recording and processed_out is not None: 
+    if processed_out is not None and processed_out.isOpened():
         processed_out.release()
 
     # Safer window destruction
@@ -1105,24 +1165,19 @@ def show_selection_window():
             return
 
         # Query based on resolution
-        format_string = ""
         title = ""
         groupby = ""
         
         if resolution == "second":
-            format_string = "%Y-%m-%d %H:%M:%S"
             title = "Entries by Second"
             groupby = "strftime('%Y-%m-%d %H:%M:%S', timestamp)"
         elif resolution == "minute":
-            format_string = "%Y-%m-%d %H:%M"
             title = "Entries by Minute"
             groupby = "strftime('%Y-%m-%d %H:%M', timestamp)"
         elif resolution == "hour":
-            format_string = "%Y-%m-%d %H:00"
             title = "Hourly Entries"
             groupby = "strftime('%Y-%m-%d %H:00:00', timestamp)"
         else:  # day
-            format_string = "%Y-%m-%d"
             title = "Daily Entries"
             groupby = "DATE(timestamp)"
 
@@ -1147,7 +1202,7 @@ def show_selection_window():
                 if resolution == "day":
                     dt = datetime.strptime(row[0], "%Y-%m-%d")
                 elif resolution == "hour":
-                    dt = datetime.strptime(row[0], "%Y-%m-%d %H")
+                    dt = datetime.strptime(row[0], "%Y-%m-%d %H:00:00")
                 elif resolution == "minute":
                     dt = datetime.strptime(row[0], "%Y-%m-%d %H:%M")
                 else:  # second
