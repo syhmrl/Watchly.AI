@@ -9,7 +9,7 @@ from tkinter import messagebox
 import numpy as np
 from ultralytics import YOLO
 import sqlite3
-from datetime import datetime, date, timedelta
+from datetime import datetime, date
 import torch
 from tkcalendar import DateEntry
 import matplotlib.pyplot as plt
@@ -28,7 +28,7 @@ RTSP_URL = [
 # Source of the Video/Stream
 # VIDEO_SOURCE = 0
 CAMERA_SOURCES = [
-    0,#RTSP_URL[0],
+    RTSP_URL[0],
     None
 ]
 
@@ -61,28 +61,28 @@ ENABLE_RAW_RECORDING = False
 ENABLE_PREDICTED_RECORDING = False
 
 # Add these constants at the beginning of your file where other constants are defined
-INITIAL_ZOOM = 2.2  # No zoom by default
+INITIAL_ZOOM = 1.9  # No zoom by default
 MAX_ZOOM = 5.0      # Maximum zoom level
 ZOOM_STEP = 0.1     # How much to change zoom per key press
 
+# Global variables for ROI drawing
+drawing = False
+roi_points = []
+temp_roi = []
+roi_set = False
+current_mouse_pos = (0, 0)  # Store current mouse position
+
 # Region of Interest settings
 ENABLE_ROI = True  # Set to True to only count people in a specific region
+ENABLE_ROI_DRAWING = False  # Set to True to enable drawing ROI at start
 # Define ROI polygons for each camera - customize these coordinates for your setup
 ROI_POINTS = [
-    # np.array([[125, 392], [972, 365], [1, 634], [1246, 489]], np.int32),  # Camera 1
-    np.array([[137, 361], [1043, 358], [1273, 646],[0, 681]], np.int32),
-    np.array([[137, 361], [1043, 358], [1273, 600],[0, 681]], np.int32),
+    np.array([(137, 315), (80, 318), (0, 366), (1, 459), (2, 612), (842, 550), (1268, 458), (1272, 405), (1205, 368), (1161, 404), (1098, 381), (1005, 272), (792, 274), (772, 448), (733, 452), (702, 406), (256, 396), (174, 431), (146, 423)], np.int32),
+    np.array([[], [], []], np.int32),
 ]
+
 for i in range(len(ROI_POINTS)):
     ROI_POINTS[i] = ROI_POINTS[i].reshape((-1, 1, 2))
-
-# Get mouse coordinate
-def RGB(event, x, y, flags, param):
-    if event == cv2.EVENT_MOUSEMOVE :  
-        colorsBGR = [x, y] # x,y current coordinates
-        print(colorsBGR)
-
-
 
 # Add this class to handle zoom parameters
 class ZoomController:
@@ -148,6 +148,7 @@ class ThreadControl:
         self.zoom_controllers = [ZoomController() for _ in range(len(CAMERA_SOURCES))]
         self.enable_visual = True
         self.enable_processed_frame_recording = False
+        self.enable_roi_drawing_mode = ENABLE_ROI_DRAWING
     
     def reset(self):
         """Reset all thread states and counters"""
@@ -217,49 +218,6 @@ def capture_frames(source_index):
         print(f"Successfully opened video source for {source_name}")
 
     cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # Reduce buffer size for lower latency
-
-    if ENABLE_RAW_RECORDING:
-        # Get actual frame size from the camera
-        actual_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-        actual_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        actual_fps = cap.get(cv2.CAP_PROP_FPS)
-
-        # Use consistent frame rate
-        if actual_fps <= 0:
-            actual_fps = 15.0  # Fallback FPS if not detected
-        # Create directories if they don't exist
-        os.makedirs("video/raw", exist_ok=True)
-        
-        # Setup video writer if recording is enabled
-        raw_filename = f"video/raw/raw_{source_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
-
-         # Try different codecs if one doesn't work
-        try:
-            # Try H264 first (more compatible)
-            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-            raw_out = cv2.VideoWriter(raw_filename, fourcc, actual_fps, (actual_width, actual_height))
-            
-            # Check if writer opened successfully
-            if not raw_out.isOpened():
-                # If MP4V fails, try H264
-                fourcc = cv2.VideoWriter_fourcc(*'H264')
-                raw_out = cv2.VideoWriter(raw_filename, fourcc, actual_fps, (FRAME_WIDTH, FRAME_HEIGHT))
-                
-                # If still not working, try XVID
-                if not raw_out.isOpened():
-                    fourcc = cv2.VideoWriter_fourcc(*'XVID')
-                    raw_out = cv2.VideoWriter(raw_filename.replace('.mp4', '.avi'), fourcc, actual_fps, (FRAME_WIDTH, FRAME_HEIGHT))
-        except Exception as e:
-            print(f"Error creating video writer: {e}")
-            # Last resort - MJPG in AVI container
-            fourcc = cv2.VideoWriter_fourcc(*'MJPG')
-            raw_out = cv2.VideoWriter(raw_filename.replace('.mp4', '.avi'), fourcc, actual_fps, (FRAME_WIDTH, FRAME_HEIGHT))
-        
-        if not raw_out.isOpened():
-            print(f"WARNING: Failed to create video writer for {source_name}. Recording disabled.")
-            raw_out = None
-        else:
-            print(f"Successfully created video writer for {source_name} raw frames")
     
     while not thread_controller.stop_event.is_set():
         ret, frame = cap.read()
@@ -274,9 +232,6 @@ def capture_frames(source_index):
             cap = cv2.VideoCapture(source)
             continue
             
-        # Save frame to video if recording
-        if ENABLE_RAW_RECORDING and raw_out is not None and raw_out.isOpened(): 
-            raw_out.write(frame)
         
         try:
             # Put frame in queue, replace if full
@@ -291,8 +246,6 @@ def capture_frames(source_index):
     
     # Clean up resources
     cap.release()
-    if ENABLE_RAW_RECORDING and raw_out is not None: 
-        raw_out.release()
     print(f"Frame capture thread for {source_name} stopped")
 
 # Database insert function
@@ -317,6 +270,53 @@ def insert_to_db():
                 print(f"Database error: {e}")
     
     print("Database thread stopped")
+
+# Mouse callback function for drawing ROI
+def draw_roi(event, x, y, flags, param):
+    global drawing, roi_points, temp_roi, roi_set, current_mouse_pos
+
+    # Update current mouse position regardless of event
+    current_mouse_pos = (x, y)
+    
+    source_index = param
+    
+    if event == cv2.EVENT_LBUTTONDOWN:
+        if not roi_set:
+            drawing = True
+            roi_points.append((x, y))
+            temp_roi = roi_points.copy()
+    
+    elif event == cv2.EVENT_MOUSEMOVE:
+        if drawing:
+            temp_roi = roi_points.copy()
+            temp_roi.append((x, y))
+    
+    elif event == cv2.EVENT_RBUTTONDOWN:
+        # Right click to finish drawing if we have at least 3 points
+        if len(roi_points) >= 3:
+            roi_set = True
+            # Convert to numpy array and update the ROI_POINTS
+            points_array = np.array(roi_points, np.int32).reshape((-1, 1, 2))
+            ROI_POINTS[source_index] = points_array
+            
+            # Print the coordinates for future use
+            print(f"\nROI coordinates for Camera {source_index + 1}:")
+            print(f"np.array({roi_points}, np.int32),")
+            
+            # Keep the points for display but mark as completed
+            drawing = False
+            print(f"ROI drawing completed with {len(roi_points)} points")
+    elif event == cv2.EVENT_LBUTTONUP:
+        # We just continue drawing, no need to finalize ROI here
+        pass
+
+# Function to reset ROI for a specific camera
+def reset_roi(source_index):
+    global roi_points, temp_roi, roi_set
+    roi_points = []
+    temp_roi = []
+    roi_set = False
+    print(f"ROI for Camera {source_index + 1} has been reset. Please draw a new ROI.")
 
 # Add this function to check if a detection is in your ROI
 def is_in_roi(box, roi_points):
@@ -464,7 +464,7 @@ def video_processing_line(source_index):
 
 # Video processing function for crowd counting
 def video_processing_crowd(source_index):
-    global crowd_count, total_crowd_count
+    global crowd_count, total_crowd_count, drawing, roi_points, temp_roi, roi_set
 
     source_name = f"Camera {source_index + 1}"
     window_name = f"People Counter - {source_name} - Crowd Mode"
@@ -485,7 +485,7 @@ def video_processing_crowd(source_index):
     colors = [(random.randint(0, 255), random.randint(0, 255), random.randint(0, 255)) for _ in range(100)]
 
     # Add minimum detection threshold
-    MIN_DETECTIONS = 20  # Require this many consecutive detections before counting
+    MIN_DETECTIONS = 30  # Require this many consecutive detections before counting
     
     # Add to your tracking data structures
     detection_count = {}  # track_id -> consecutive detection count
@@ -497,7 +497,9 @@ def video_processing_crowd(source_index):
     
     # Make OpenCV window a normal window that can be closed
     cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
-    #cv2.setMouseCallback(window_name, RGB)
+
+    # Set up mouse callback for drawing ROI
+    cv2.setMouseCallback(window_name, draw_roi, source_index)
 
     thread_controller.video_window_open = True
     # Print zoom controls instruction
@@ -509,10 +511,67 @@ def video_processing_crowd(source_index):
     print(f"Other Controls:")
     print("  Q : Record Video")
     print("  V : Visualization")
-    print("  T : Toggle ROI display") 
+    print("  T : Toggle ROI display")
+    print("  D : Toggle ROI drawing mode")
+    print("  C : Clear/Reset ROI")
 
     # NEW: ROI visualization toggle
     show_roi = True
+
+    # If ROI drawing is enabled, wait for user to draw ROI before starting
+    if ENABLE_ROI and thread_controller.enable_roi_drawing_mode:
+        roi_set = False
+        roi_points = []
+        temp_roi = []
+        print(f"Please draw Region of Interest for {source_name}.")
+        print("Left-click to add points (minimum 3 needed), right-click to finish.")
+
+        # Initialize drawing frame with a black background
+        drawing_frame = np.zeros((FRAME_HEIGHT, FRAME_WIDTH, 3), dtype=np.uint8)
+
+        # Wait for ROI to be drawn
+        while not roi_set and not thread_controller.stop_event.is_set():
+            # Initialize drawing frame
+            try:
+                drawing_frame = thread_controller.frame_queue[source_index].get(timeout=0.5)
+                drawing_frame = zoom_controller.apply_zoom(drawing_frame)
+                drawing_frame = cv2.resize(drawing_frame, FRAME_SIZE)
+            except queue.Empty:
+                continue
+
+            drawing_display = drawing_frame.copy()
+            
+            # Draw the current ROI points
+            if len(temp_roi) > 0:
+                points = np.array(temp_roi, np.int32).reshape((-1, 1, 2))
+                cv2.polylines(drawing_display, [points], True if len(temp_roi) > 2 else False, (0, 255, 0), 2)
+                
+                # Draw the points
+                for i, point in enumerate(temp_roi):
+                    cv2.circle(drawing_display, point, 5, (0, 0, 255), -1)
+                    cv2.putText(drawing_display, str(i+1), (point[0]+5, point[1]+5), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+        
+            
+            # Drawing instructions
+            cv2.putText(drawing_display, "Draw ROI: Left-click to add points", (10, 30), 
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+            cv2.putText(drawing_display, "Right-click to finish (min 3 points)", (10, 60), 
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+            cv2.putText(drawing_display, f"Points: {len(temp_roi)}/3+", (10, 90), 
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+            
+            # Show active cursor position
+            if drawing and len(temp_roi) > 0:
+                cv2.circle(drawing_display, current_mouse_pos, 3, (0, 255, 255), -1)
+                
+            cv2.imshow(window_name, drawing_display)
+            key = cv2.waitKey(1) & 0xFF
+            
+            # Allow ESC to cancel
+            if key == 27:
+                print("ROI drawing canceled.")
+                thread_controller.stop_event.set()
+                break
     
     while not thread_controller.stop_event.is_set():
         t_start = time.perf_counter()
@@ -529,97 +588,130 @@ def video_processing_crowd(source_index):
 
         # Process the frame
         frame = cv2.resize(frame, FRAME_SIZE)
-        results = thread_model.track(
-            frame,
-            verbose=False,
-            classes=[0],  # Track people only
-            conf=0.5,    # Lower confidence threshold
-            iou=0.5,
-            stream=True,
-            stream_buffer=True,
-            persist=True,
-            tracker="custom_tracker.yaml"
-        )
 
-        # frame = cv2.flip(frame, 1)
-
-        # Create a copy of the frame for visualization and recording
-        visualization_frame = frame.copy()
-
-        # Draw ROI if enabled
-        if ENABLE_ROI and show_roi:
-            cv2.polylines(visualization_frame, [ROI_POINTS[source_index]], True, (0, 255, 0), 2)
-            cv2.putText(visualization_frame, "Target Area", 
-                        tuple(ROI_POINTS[source_index][0][0]), 
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
-
-        seen_ids = set()
-
-        for result in results:
-
-            for box in result.boxes:
+        # Only process frames for detection if not in drawing mode
+        if thread_controller.enable_roi_drawing_mode and not roi_set and ENABLE_ROI:
+            # In drawing mode, just show the current frame with drawing overlay
+            visualization_frame = frame.copy()
+            
+            # Draw the current ROI points
+            if len(temp_roi) > 0:
+                points = np.array(temp_roi, np.int32).reshape((-1, 1, 2))
+                cv2.polylines(visualization_frame, [points], True if len(temp_roi) > 2 else False, (0, 255, 0), 2)
                 
-                track_id = int(box.id.item()) if box.id is not None else None
+                # Draw the points
+                for i, point in enumerate(temp_roi):
+                    cv2.circle(visualization_frame, point, 5, (0, 0, 255), -1)
+                    cv2.putText(visualization_frame, str(i+1), (point[0]+5, point[1]+5), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+    
 
-                if track_id is None:
-                    continue
+           # Instructions
+            cv2.putText(visualization_frame, "Draw ROI: Left-click to add points", (10, 30), 
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+            cv2.putText(visualization_frame, "Right-click to finish (min 3 points)", (10, 60), 
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+            cv2.putText(visualization_frame, f"Points: {len(temp_roi)}/3+", (10, 90), 
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+        
+            if drawing:
+                cv2.circle(visualization_frame, current_mouse_pos, 3, (0, 255, 255), -1)
+        else:
+            results = thread_model.track(
+                frame,
+                verbose=False,
+                classes=[0],  # Track people only
+                # conf=0.5,    # Lower confidence threshold
+                iou=0.5,
+                stream=True,
+                stream_buffer=True,
+                persist=True,
+                tracker="custom_tracker.yaml"
+            )
 
-                x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
-                
-                # Track the ID
-                seen_ids.add(track_id)
-                last_seen[track_id] = frame_idx
+            # frame = cv2.flip(frame, 1)
 
-                # Increment detection counter for this ID
-                detection_count[track_id] = detection_count.get(track_id, 0) + 1
+            # Create a copy of the frame for visualization and recording
+            visualization_frame = frame.copy()
 
-                # Apply ROI check if enabled
-                in_roi = not ENABLE_ROI or is_in_roi(box.xyxy[0].tolist(), ROI_POINTS[source_index])
-                
-                # If this is a countable person and in ROI (if enabled), count them
-                if  in_roi and track_id not in tracked_ids and detection_count[track_id] >= MIN_DETECTIONS:
-                    tracked_ids[track_id] = True
-                    crowd_count[source_index] += 1
-                    total_crowd_count += 1
+            # Draw ROI if enabled
+            if ENABLE_ROI and show_roi:
+                cv2.polylines(visualization_frame, [ROI_POINTS[source_index]], True, (0, 255, 0), 2)
+                cv2.putText(visualization_frame, "Target Area", 
+                            tuple(ROI_POINTS[source_index][0][0]), 
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+
+            seen_ids = set()
+
+            for result in results:
+
+                for box in result.boxes:
                     
-                    # Record in database
-                    timestamp = datetime.now().isoformat()
-                    source_identifier = f"camera_{source_index}"
-                    thread_controller.pending_inserts.append((source_identifier, track_id, 'enter', timestamp, 'crowd'))
+                    track_id = int(box.id.item()) if box.id is not None else None
 
-                # Draw bounding box and ID
-                if thread_controller.enable_visual:
-                    color = colors[track_id % len(colors)]
-                    cv2.rectangle(visualization_frame, (x1, y1), (x2, y2), color, 2)
-                    cv2.putText(visualization_frame, f"ID: {track_id}", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+                    if track_id is None:
+                        continue
 
-        # Clean up tracks that haven't been seen recently
-        for tid in list(last_seen):
-            if frame_idx - last_seen.get(tid, frame_idx) > MAX_MISSING:
-                if tid in last_seen:
-                    del last_seen[tid]
-                if tid in detection_count:
-                    del detection_count[tid]
-            # Note: We don't remove from tracked_ids to avoid recounting
+                    x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
+                    
+                    # Track the ID
+                    seen_ids.add(track_id)
+                    last_seen[track_id] = frame_idx
 
-        # Display counters
-        cv2.putText(visualization_frame, f"Crowd Count: {crowd_count[source_index]}", (10, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+                    # Increment detection counter for this ID
+                    detection_count[track_id] = detection_count.get(track_id, 0) + 1
 
-        # Calculate and display FPS
-        t_stop = time.perf_counter()
-        fps = 1 / (t_stop - t_start)
-        frame_rate_buffer.append(fps)
-        if len(frame_rate_buffer) > fps_avg_len:
-            frame_rate_buffer.pop(0)
-        avg_frame_rate = np.mean(frame_rate_buffer)
+                    # Apply ROI check if enabled
+                    in_roi = not ENABLE_ROI or is_in_roi(box.xyxy[0].tolist(), ROI_POINTS[source_index])
+                    
+                    # If this is a countable person and in ROI (if enabled), count them
+                    if  in_roi and track_id not in tracked_ids and detection_count[track_id] >= MIN_DETECTIONS:
+                        tracked_ids[track_id] = True
+                        crowd_count[source_index] += 1
+                        total_crowd_count += 1
+                        
+                        # Record in database
+                        timestamp = datetime.now().isoformat()
+                        source_identifier = f"camera_{source_index}"
+                        thread_controller.pending_inserts.append((source_identifier, track_id, 'enter', timestamp, 'crowd'))
 
+                    # Draw bounding box and ID
+                    if thread_controller.enable_visual and in_roi:
+                        color = colors[track_id % len(colors)]
+                        cv2.rectangle(visualization_frame, (x1, y1), (x2, y2), color, 2)
+                        cv2.putText(visualization_frame, f"ID: {track_id}", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
 
-        cv2.putText(visualization_frame, f"FPS: {avg_frame_rate:.1f}", (10, FRAME_HEIGHT - 20), 
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+            # Clean up tracks that haven't been seen recently
+            for tid in list(last_seen):
+                if frame_idx - last_seen.get(tid, frame_idx) > MAX_MISSING:
+                    if tid in last_seen:
+                        del last_seen[tid]
+                    if tid in detection_count:
+                        del detection_count[tid]
+                # Note: We don't remove from tracked_ids to avoid recounting
+
+            # Calculate and display FPS
+            t_stop = time.perf_counter()
+            fps = 1 / (t_stop - t_start)
+            frame_rate_buffer.append(fps)
+            if len(frame_rate_buffer) > fps_avg_len:
+                frame_rate_buffer.pop(0)
+            avg_frame_rate = np.mean(frame_rate_buffer)
+
+            if thread_controller.enable_visual:
+                # Display counters
+                cv2.putText(visualization_frame, f"Crowd Count: {crowd_count[source_index]}", (10, 40), cv2.FONT_HERSHEY_SIMPLEX, 1.5, (0, 255, 0), 4)
+
+                cv2.putText(visualization_frame, f"FPS: {avg_frame_rate:.1f}", (10, FRAME_HEIGHT - 20), 
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+                
+        # Display ROI drawing mode status
+        roi_mode_text = "ROI Drawing Mode: ON" if thread_controller.enable_roi_drawing_mode else "ROI Drawing Mode: OFF"
+        cv2.putText(visualization_frame, roi_mode_text, (10, FRAME_HEIGHT - 50), 
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 165, 0), 2)
         
         # Write processed frame to video
         if thread_controller.enable_processed_frame_recording and processed_out is None:
-            recording_fps = 20.0
+            recording_fps = 15.0
             os.makedirs("video/processed", exist_ok=True)
             processed_filename = f"video/processed/processed_{source_name}_crowd_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
             fourcc = cv2.VideoWriter_fourcc(*'mp4v')
@@ -629,8 +721,6 @@ def video_processing_crowd(source_index):
         if thread_controller.enable_processed_frame_recording and processed_out is not None:
             if processed_out.isOpened():
                 processed_out.write(visualization_frame)
-
-        
 
         cv2.imshow(window_name, visualization_frame)
         key = cv2.waitKey(1) & 0xFF
@@ -658,6 +748,18 @@ def video_processing_crowd(source_index):
             print(f"Recording {'started' if thread_controller.enable_processed_frame_recording else 'ended'} {datetime.now().strftime('%Y%m%d_%H%M%S')}")
         elif key == ord('t') or key == ord('T'):  # Toggle ROI display
             show_roi = not show_roi
+        elif key == ord('d') or key == ord('D'):  # Toggle ROI drawing mode
+            thread_controller.enable_roi_drawing_mode = not thread_controller.enable_roi_drawing_mode
+            if thread_controller.enable_roi_drawing_mode:
+                print("ROI drawing mode enabled. Draw a new ROI.")
+                roi_set = False
+                roi_points = []
+                temp_roi = []
+            else:
+                print("ROI drawing mode disabled.")
+        elif key == ord('c') or key == ord('C'):  # Clear/Reset ROI
+            reset_roi(source_index)
+            thread_controller.enable_roi_drawing_mode = True
         
         # Handle window close or ESC key
         if key == 27 or cv2.getWindowProperty(window_name, cv2.WND_PROP_VISIBLE) < 1:

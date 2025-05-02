@@ -12,7 +12,7 @@ import torch
 from tracker import Tracker
 
 # Video testing setup
-VIDEO_NAME = 'test_people.mp4'
+VIDEO_NAME = 'masuk_u_test.mp4'
 VIDEO_PATH = os.path.join('.', 'video', f'{VIDEO_NAME}')
 VIDEO_OUT_PATH = os.path.join('.', 'video', f'predicted_{VIDEO_NAME.split(".")[0]}.mp4')
 
@@ -20,7 +20,10 @@ VIDEO_OUT_PATH = os.path.join('.', 'video', f'predicted_{VIDEO_NAME.split(".")[0
 VIDEO_SOURCE = VIDEO_PATH
 
 # Model used
-MODEL_NAME = "yolo11s.pt"
+MODEL_NAME = "yolo11m.pt"
+CONFIDENCE_LEVEL = 0.25
+IOU = 0.5
+TRACKER = "bytetrack.yaml"
 
 # Setup frame size
 FRAME_WIDTH = 1280
@@ -288,7 +291,7 @@ def video_processing_v2():
     # Clean up
     cv2.destroyAllWindows()
     print("Video processing thread stopped")
-
+# Video processing function for crowd counting
 def video_processing_crowd():
     global crowd_count, total_crowd_count
 
@@ -304,44 +307,20 @@ def video_processing_crowd():
     # Dictionary to track people who have been counted
     tracked_ids = {}
     last_seen = {}
+    track_id = None
     frame_idx = 0
-    MAX_MISSING = 30  # Number of frames before considering a track lost
+    MAX_MISSING = 400  # Number of frames before considering a track lost
     frame_rate_buffer = []
     avg_frame_rate = 0
     colors = [(random.randint(0, 255), random.randint(0, 255), random.randint(0, 255)) for _ in range(100)]
 
     # Add minimum detection threshold
-    MIN_DETECTIONS = 5  # Require this many consecutive detections before counting
+    MIN_DETECTIONS = 30  # Require this many consecutive detections before counting
     
     # Add to your tracking data structures
     detection_count = {}  # track_id -> consecutive detection count
 
-    if ENABLE_PREDICTED_RECORDING:
-        # Set a consistent frame rate for recording
-        recording_fps = 15.0
-
-        # Create directories if they don't exist
-        os.makedirs("video/processed", exist_ok=True)
-
-        # Setup video writer for processed frames
-        processed_filename = f"video/processed/processed_{source_name}_crowd_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
-        # Try different codecs if one doesn't work
-        try:
-            # Try MP4V first (more compatible)
-            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-            processed_out = cv2.VideoWriter(processed_filename, fourcc, recording_fps, (FRAME_WIDTH, FRAME_HEIGHT))
-
-        except Exception as e:
-            print(f"Error creating video writer: {e}")
-            # Last resort - MJPG in AVI container
-            fourcc = cv2.VideoWriter_fourcc(*'MJPG')
-            processed_out = cv2.VideoWriter(processed_filename.replace('.mp4', '.avi'), fourcc, recording_fps, (FRAME_WIDTH, FRAME_HEIGHT))
-        
-        if not processed_out.isOpened():
-            print(f"WARNING: Failed to create video writer for {source_name} processed frames. Recording disabled.")
-            processed_out = None
-        else:
-            print(f"Successfully created video writer for {source_name} processed frames")
+    processed_out = None
     
     # Make OpenCV window a normal window that can be closed
     cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
@@ -357,19 +336,22 @@ def video_processing_crowd():
 
         frame_idx += 1
 
-        if frame_idx % 2 != 0:
-            continue
-
         # Process the frame
         frame = cv2.resize(frame, FRAME_SIZE)
+
         results = thread_model.track(
             frame,
             verbose=False,
             classes=[0],  # Track people only
-            conf=0.65,
+            conf=CONFIDENCE_LEVEL,    # Lower confidence threshold
+            iou=IOU,
+            stream=True,
+            stream_buffer=True,
             persist=True,
-            tracker="custom_tracker.yaml"
+            tracker=TRACKER
         )
+
+        # frame = cv2.flip(frame, 1)
 
         # Create a copy of the frame for visualization and recording
         visualization_frame = frame.copy()
@@ -393,19 +375,17 @@ def video_processing_crowd():
 
                 # Increment detection counter for this ID
                 detection_count[track_id] = detection_count.get(track_id, 0) + 1
-                
-                # If this is a new person, count them
-                if track_id not in tracked_ids and detection_count[track_id] >= MIN_DETECTIONS:
+
+                if  track_id not in tracked_ids and detection_count[track_id] >= MIN_DETECTIONS:
                     tracked_ids[track_id] = True
                     crowd_count += 1
                     total_crowd_count += 1
                     
                     # Record in database
                     # timestamp = datetime.now().isoformat()
-                    # source_identifier = f"camera_test_crowd"
-                    # pending_inserts.append((source_identifier, track_id, 'enter', timestamp, 'crowd'))
+                    # source_identifier = f"camera_{source_index}"
+                    # thread_controller.pending_inserts.append((source_identifier, track_id, 'enter', timestamp, 'crowd'))
 
-                # Draw bounding box and ID
                 color = colors[track_id % len(colors)]
                 cv2.rectangle(visualization_frame, (x1, y1), (x2, y2), color, 2)
                 cv2.putText(visualization_frame, f"ID: {track_id}", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
@@ -419,9 +399,6 @@ def video_processing_crowd():
                     del detection_count[tid]
             # Note: We don't remove from tracked_ids to avoid recounting
 
-        # Display counters
-        cv2.putText(visualization_frame, f"Crowd Count: {crowd_count}", (10, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-
         # Calculate and display FPS
         t_stop = time.perf_counter()
         fps = 1 / (t_stop - t_start)
@@ -429,23 +406,35 @@ def video_processing_crowd():
         if len(frame_rate_buffer) > fps_avg_len:
             frame_rate_buffer.pop(0)
         avg_frame_rate = np.mean(frame_rate_buffer)
+
+        cv2.putText(visualization_frame, f"Crowd Count: {crowd_count}", (10, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+
         cv2.putText(visualization_frame, f"FPS: {avg_frame_rate:.1f}", (10, FRAME_HEIGHT - 20), 
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
-        
+                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+            
         # Write processed frame to video
-        if ENABLE_PREDICTED_RECORDING and processed_out is not None and processed_out.isOpened(): 
-            processed_out.write(visualization_frame)
+        if ENABLE_PREDICTED_RECORDING and processed_out is None:
+            recording_fps = 15.0
+            os.makedirs("video/testing", exist_ok=True)
+            processed_filename = f"video/testing/test_{source_name}_crowd_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
+            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+            processed_out = cv2.VideoWriter(processed_filename, fourcc, recording_fps, (FRAME_WIDTH, FRAME_HEIGHT))
+
+        # Write frame to video if recording is active
+        if ENABLE_PREDICTED_RECORDING and processed_out is not None:
+            if processed_out.isOpened():
+                processed_out.write(visualization_frame)
 
         cv2.imshow(window_name, visualization_frame)
-        key = cv2.waitKey(SKIP_FRAME_BY_KEYPRESSED) & 0xFF
-        
+        key = cv2.waitKey(1) & 0xFF
+
         # Handle window close or ESC key
         if key == 27 or cv2.getWindowProperty(window_name, cv2.WND_PROP_VISIBLE) < 1:
             stop_event.set()
             break
     
     # Clean up
-    if ENABLE_PREDICTED_RECORDING and processed_out is not None: 
+    if processed_out is not None and processed_out.isOpened():
         processed_out.release()
 
     # Safer window destruction
@@ -455,8 +444,12 @@ def video_processing_crowd():
     except cv2.error:
         pass  # Window was already closed by user
 
-    print(f"Video processing thread for {source_name} stopped")
-
+    print(f"Crowd count: {crowd_count}")
+    print(f"last tracked id: {track_id}")
+    print(f"model: {MODEL_NAME}")
+    print(f"confidence level: {CONFIDENCE_LEVEL}")
+    print(f"iou: {IOU}")
+    print(f"tracker: {TRACKER}")
 
 
 db_thread = threading.Thread(target=insert_to_db, daemon=True)

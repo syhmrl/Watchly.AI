@@ -9,7 +9,7 @@ from tkinter import messagebox
 import numpy as np
 from ultralytics import YOLO
 import sqlite3
-from datetime import datetime, date, timedelta
+from datetime import datetime, date
 import torch
 from tkcalendar import DateEntry
 import matplotlib.pyplot as plt
