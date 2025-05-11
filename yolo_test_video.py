@@ -7,7 +7,7 @@ import queue
 import tkinter as tk
 import numpy as np
 from ultralytics import YOLO
-import sqlite3
+import sqlite3  
 from datetime import datetime
 import torch
 
@@ -21,7 +21,7 @@ VIDEO_OUT_PATH = os.path.join('.', 'video', f'predicted_{VIDEO_NAME.split(".")[0
 CAM_USERNAME = "admin"
 CAM_PASSWORD = "Abcdefghi1"
 CAM_IP = "192.168.1.64"
-RTSP_URL = f"rtsp://{CAM_USERNAME}:{CAM_PASSWORD}@{CAM_IP}:554/Streaming/Channels/101"
+RTSP_URL = f"rtsp://{CAM_USERNAME}:{CAM_PASSWORD}@{CAM_IP}:554/Streaming/Channels/101?transport=tcp"
 
 # Source of the Video/Stream
 VIDEO_SOURCE = RTSP_URL
