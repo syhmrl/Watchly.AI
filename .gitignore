@@ -2,7 +2,7 @@ video/
 deep_sort/
 model_data/
 runs/
-_pychache_/
+__pycache__/
 model_data/
 deep_sort/
 venv
