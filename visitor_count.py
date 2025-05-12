@@ -28,12 +28,12 @@ RTSP_URL = [
 # Source of the Video/Stream
 # VIDEO_SOURCE = 0
 CAMERA_SOURCES = [
-    RTSP_URL[0],
+    0,#RTSP_URL[0],
     None
 ]
 
 # Model used
-MODEL_NAME = "yolo11l.pt"
+MODEL_NAME = "yolo11s.pt"
 
 # Setup frame size
 FRAME_WIDTH = 1280
@@ -61,7 +61,7 @@ ENABLE_RAW_RECORDING = False
 ENABLE_PREDICTED_RECORDING = False
 
 # Add these constants at the beginning of your file where other constants are defined
-INITIAL_ZOOM = 1.9  # No zoom by default
+INITIAL_ZOOM = 1.0  # No zoom by default
 MAX_ZOOM = 5.0      # Maximum zoom level
 ZOOM_STEP = 0.1     # How much to change zoom per key press
 
@@ -77,7 +77,7 @@ ENABLE_ROI = True  # Set to True to only count people in a specific region
 ENABLE_ROI_DRAWING = False  # Set to True to enable drawing ROI at start
 # Define ROI polygons for each camera - customize these coordinates for your setup
 ROI_POINTS = [
-    np.array([(137, 315), (80, 318), (0, 366), (1, 459), (2, 612), (842, 550), (1268, 458), (1272, 405), (1205, 368), (1161, 404), (1098, 381), (1005, 272), (792, 274), (772, 448), (733, 452), (702, 406), (256, 396), (174, 431), (146, 423)], np.int32),
+    np.array([(3, 70), (1279, 91), (1277, 715), (8, 716)], np.int32),
     np.array([[], [], []], np.int32),
 ]
 
