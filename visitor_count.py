@@ -5,16 +5,17 @@ import time
 import threading
 import queue
 import tkinter as tk
-from tkinter import messagebox
 import numpy as np
-from ultralytics import YOLO
-import sqlite3
-from datetime import datetime, date
-import torch
-from tkcalendar import DateEntry
 import matplotlib.pyplot as plt
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+import torch
 import matplotlib.dates as mdates
+
+from ultralytics import YOLO
+from datetime import datetime, date
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from tkcalendar import DateEntry
+from tkinter import messagebox
+from database_utils import Database, insert_to_db
 
 # Camera Settings
 CAM_USERNAME = "admin"
@@ -161,49 +162,6 @@ class ThreadControl:
 # Global thread controller
 thread_controller = ThreadControl()
 
-# Database Connection
-class Database:
-    _instance = None
-    
-    def __new__(cls):
-        if cls._instance is None:
-            cls._instance = super(Database, cls).__new__(cls)
-            cls._instance._connection = None
-            cls._instance._cursor = None
-            cls._instance._init_db()
-        return cls._instance
-    
-    def _init_db(self):
-        self._connection = sqlite3.connect('watchly_ai.db', check_same_thread=False)
-        self._cursor = self._connection.cursor()
-        
-        # Use when you to clear table contents
-        # self._cursor.execute("DROP TABLE IF EXISTS crossing_events")
-         
-        # Initialize schema
-        self._cursor.execute('''
-            CREATE TABLE IF NOT EXISTS crossing_events (
-                id        INTEGER PRIMARY KEY AUTOINCREMENT,
-                source    TEXT,
-                track_id  INTEGER,
-                direction TEXT,
-                timestamp TEXT,
-                mode_type TEXT DEFAULT 'line'
-            )
-        ''')
-
-        self._connection.commit()
-    
-    def get_connection(self):
-        return self._connection, self._cursor
-    
-    def close(self):
-        if self._connection:
-            self._connection.close()
-            self._connection = None
-            self._cursor = None
-            Database._instance = None
-
 # Frame capture function
 def capture_frames(source_index):
     source = CAMERA_SOURCES[source_index]
@@ -247,29 +205,6 @@ def capture_frames(source_index):
     # Clean up resources
     cap.release()
     print(f"Frame capture thread for {source_name} stopped")
-
-# Database insert function
-def insert_to_db():
-    db = Database()
-    conn, cursor = db.get_connection()
-    
-    while not thread_controller.stop_event.is_set():
-        time.sleep(0.5)  # Process every half second
-        if thread_controller.pending_inserts:
-            # Copy the current pending inserts and clear the list
-            inserts_to_process = thread_controller.pending_inserts.copy()
-            thread_controller.pending_inserts.clear()
-            
-            try:
-                with conn:
-                    cursor.executemany(
-                        "INSERT INTO crossing_events (source, track_id, direction, timestamp, mode_type) VALUES (?, ?, ?, ?, ?)", 
-                        inserts_to_process
-                    )
-            except sqlite3.Error as e:
-                print(f"Database error: {e}")
-    
-    print("Database thread stopped")
 
 # Mouse callback function for drawing ROI
 def draw_roi(event, x, y, flags, param):
@@ -879,7 +814,7 @@ def start_threads(on_session_end=None):
             video_thread.start()
             thread_controller.threads.append(video_thread)
 
-    db_thread = threading.Thread(target=insert_to_db, daemon=True)
+    db_thread = threading.Thread(target=insert_to_db,args=(thread_controller,), daemon=True)
     db_thread.start()
     thread_controller.threads.append(db_thread)
 
