@@ -28,7 +28,7 @@ RTSP_URL = [
 # Source of the Video/Stream
 # VIDEO_SOURCE = 0
 CAMERA_SOURCES = [
-    0,
+    0,#RTSP_URL[0],
     None
 ]
 
@@ -77,7 +77,7 @@ ENABLE_ROI = True  # Set to True to only count people in a specific region
 ENABLE_ROI_DRAWING = False  # Set to True to enable drawing ROI at start
 # Define ROI polygons for each camera - customize these coordinates for your setup
 ROI_POINTS = [
-    np.array([(1, 22), (1279, 22), (1279, 706), (1, 700)], np.int32),
+    np.array([(3, 70), (1279, 91), (1277, 715), (8, 716)], np.int32),
     np.array([[], [], []], np.int32),
 ]
 

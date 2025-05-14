@@ -8,5 +8,4 @@ deep_sort/
 venv
 *.zip
 *.pt
-*.db
 
