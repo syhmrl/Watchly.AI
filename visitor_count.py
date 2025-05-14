@@ -16,6 +16,9 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from tkcalendar import DateEntry
 from tkinter import messagebox
 from database_utils import Database, insert_to_db
+from helpers import (
+    load_model, calculate_fps, cleanup_stale
+)
 
 # Camera Settings
 CAM_USERNAME = "admin"
@@ -263,6 +266,35 @@ def is_in_roi(box, roi_points):
     # Check if point is inside polygon
     return cv2.pointPolygonTest(roi_points, foot_point, False) >= 0
 
+def draw_roi_overlay(frame, temp_roi, drawing=False, current_mouse_pos=None):
+    """Draw ROI points and instructions on the frame."""
+    # Draw the current ROI points
+    if len(temp_roi) > 0:
+        points = np.array(temp_roi, np.int32).reshape((-1, 1, 2))
+        cv2.polylines(frame, [points], len(temp_roi) > 2, (0, 255, 0), 2)
+        
+        # Draw the points with numbers
+        for i, point in enumerate(temp_roi):
+            cv2.circle(frame, point, 5, (0, 0, 255), -1)
+            cv2.putText(frame, str(i+1), (point[0]+5, point[1]+5), 
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+    
+    # Drawing instructions
+    instruction_text = [
+        "Draw ROI: Left-click to add points",
+        "Right-click to finish (min 3 points)",
+        f"Points: {len(temp_roi)}/3+"
+    ]
+    for i, text in enumerate(instruction_text):
+        cv2.putText(frame, text, (10, 30 + 30*i), 
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+    
+    # Show active cursor position if drawing
+    if drawing and current_mouse_pos is not None:
+        cv2.circle(frame, current_mouse_pos, 3, (0, 255, 255), -1)
+    
+    return frame
+
 # Video processing function
 def video_processing_line(source_index):
     global enter_count, exit_count, total_enter_count, total_exit_count
@@ -271,10 +303,7 @@ def video_processing_line(source_index):
     window_name = f"People Counter - {source_name} - Line Mode"
 
     # Create a separate model instance for each thread
-    if torch.cuda.is_available():
-        thread_model = YOLO(MODEL_NAME).to('cuda')
-    else:
-        thread_model = YOLO(MODEL_NAME)
+    model = load_model(MODEL_NAME)
 
     track_states = {}  
     previous_centroids = {}
@@ -301,7 +330,7 @@ def video_processing_line(source_index):
 
         # Process the frame
         frame = cv2.resize(frame, FRAME_SIZE)
-        results = thread_model.track(
+        results = model.track(
             frame,
             verbose=False,
             classes=[0],  # Track people only
@@ -405,10 +434,7 @@ def video_processing_crowd(source_index):
     window_name = f"People Counter - {source_name} - Crowd Mode"
 
     # Create a separate model instance for each thread
-    if torch.cuda.is_available():
-        thread_model = YOLO(MODEL_NAME).to('cuda')
-    else:
-        thread_model = YOLO(MODEL_NAME)
+    model = load_model(MODEL_NAME)
 
     # Dictionary to track people who have been counted
     tracked_ids = {}
@@ -459,7 +485,7 @@ def video_processing_crowd(source_index):
         roi_points = []
         temp_roi = []
         print(f"Please draw Region of Interest for {source_name}.")
-        print("Left-click to add points (minimum 3 needed), right-click to finish.")
+        print("Left-click to add points (minimum 3 needed), right-click to finish. Press D to cancel")
 
         # Initialize drawing frame with a black background
         drawing_frame = np.zeros((FRAME_HEIGHT, FRAME_WIDTH, 3), dtype=np.uint8)
@@ -475,38 +501,12 @@ def video_processing_crowd(source_index):
                 continue
 
             drawing_display = drawing_frame.copy()
-            
-            # Draw the current ROI points
-            if len(temp_roi) > 0:
-                points = np.array(temp_roi, np.int32).reshape((-1, 1, 2))
-                cv2.polylines(drawing_display, [points], True if len(temp_roi) > 2 else False, (0, 255, 0), 2)
-                
-                # Draw the points
-                for i, point in enumerate(temp_roi):
-                    cv2.circle(drawing_display, point, 5, (0, 0, 255), -1)
-                    cv2.putText(drawing_display, str(i+1), (point[0]+5, point[1]+5), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-        
-            
-            # Drawing instructions
-            cv2.putText(drawing_display, "Draw ROI: Left-click to add points", (10, 30), 
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-            cv2.putText(drawing_display, "Right-click to finish (min 3 points)", (10, 60), 
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-            cv2.putText(drawing_display, f"Points: {len(temp_roi)}/3+", (10, 90), 
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-            
-            # Show active cursor position
-            if drawing and len(temp_roi) > 0:
-                cv2.circle(drawing_display, current_mouse_pos, 3, (0, 255, 255), -1)
+            drawing_display = draw_roi_overlay(drawing_display, temp_roi, drawing, current_mouse_pos)
                 
             cv2.imshow(window_name, drawing_display)
             key = cv2.waitKey(1) & 0xFF
-            
-            # Allow ESC to cancel
-            if key == 27:
-                print("ROI drawing canceled.")
-                thread_controller.stop_event.set()
-                break
+
+            ## Note to add cancelation and using the previous ROI
     
     while not thread_controller.stop_event.is_set():
         t_start = time.perf_counter()
@@ -530,28 +530,9 @@ def video_processing_crowd(source_index):
             visualization_frame = frame.copy()
             
             # Draw the current ROI points
-            if len(temp_roi) > 0:
-                points = np.array(temp_roi, np.int32).reshape((-1, 1, 2))
-                cv2.polylines(visualization_frame, [points], True if len(temp_roi) > 2 else False, (0, 255, 0), 2)
-                
-                # Draw the points
-                for i, point in enumerate(temp_roi):
-                    cv2.circle(visualization_frame, point, 5, (0, 0, 255), -1)
-                    cv2.putText(visualization_frame, str(i+1), (point[0]+5, point[1]+5), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-    
-
-           # Instructions
-            cv2.putText(visualization_frame, "Draw ROI: Left-click to add points", (10, 30), 
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-            cv2.putText(visualization_frame, "Right-click to finish (min 3 points)", (10, 60), 
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-            cv2.putText(visualization_frame, f"Points: {len(temp_roi)}/3+", (10, 90), 
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-        
-            if drawing:
-                cv2.circle(visualization_frame, current_mouse_pos, 3, (0, 255, 255), -1)
+            visualization_frame = draw_roi_overlay(visualization_frame, temp_roi, drawing, current_mouse_pos)
         else:
-            results = thread_model.track(
+            results = model.track(
                 frame,
                 verbose=False,
                 classes=[0],  # Track people only
@@ -615,22 +596,12 @@ def video_processing_crowd(source_index):
                         cv2.rectangle(visualization_frame, (x1, y1), (x2, y2), color, 2)
                         cv2.putText(visualization_frame, f"ID: {track_id}", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
 
+
             # Clean up tracks that haven't been seen recently
-            for tid in list(last_seen):
-                if frame_idx - last_seen.get(tid, frame_idx) > MAX_MISSING:
-                    if tid in last_seen:
-                        del last_seen[tid]
-                    if tid in detection_count:
-                        del detection_count[tid]
-                # Note: We don't remove from tracked_ids to avoid recounting
+            cleanup_stale(last_seen, frame_idx, MAX_MISSING, detection_count)
 
             # Calculate and display FPS
-            t_stop = time.perf_counter()
-            fps = 1 / (t_stop - t_start)
-            frame_rate_buffer.append(fps)
-            if len(frame_rate_buffer) > fps_avg_len:
-                frame_rate_buffer.pop(0)
-            avg_frame_rate = np.mean(frame_rate_buffer)
+            avg_frame_rate = calculate_fps(frame_rate_buffer, t_start, fps_avg_len)
 
             if thread_controller.enable_visual:
                 # Display counters
@@ -639,10 +610,11 @@ def video_processing_crowd(source_index):
                 cv2.putText(visualization_frame, f"FPS: {avg_frame_rate:.1f}", (10, FRAME_HEIGHT - 20), 
                         cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
                 
-        # Display ROI drawing mode status
-        roi_mode_text = "ROI Drawing Mode: ON" if thread_controller.enable_roi_drawing_mode else "ROI Drawing Mode: OFF"
-        cv2.putText(visualization_frame, roi_mode_text, (10, FRAME_HEIGHT - 50), 
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 165, 0), 2)
+                # Display ROI drawing mode status
+                roi_mode_text = "ROI Drawing Mode: ON" if thread_controller.enable_roi_drawing_mode else "ROI Drawing Mode: OFF"
+                cv2.putText(visualization_frame, roi_mode_text, (10, FRAME_HEIGHT - 50), 
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 165, 0), 2)
+        
         
         # Write processed frame to video
         if thread_controller.enable_processed_frame_recording and processed_out is None:
@@ -683,16 +655,17 @@ def video_processing_crowd(source_index):
             print(f"Recording {'started' if thread_controller.enable_processed_frame_recording else 'ended'} {datetime.now().strftime('%Y%m%d_%H%M%S')}")
         elif key == ord('t') or key == ord('T'):  # Toggle ROI display
             show_roi = not show_roi
-        elif key == ord('d') or key == ord('D'):  # Toggle ROI drawing mode
-            thread_controller.enable_roi_drawing_mode = not thread_controller.enable_roi_drawing_mode
-            if thread_controller.enable_roi_drawing_mode:
-                print("ROI drawing mode enabled. Draw a new ROI.")
-                roi_set = False
-                roi_points = []
-                temp_roi = []
-            else:
-                print("ROI drawing mode disabled.")
+        # elif key == ord('d') or key == ord('D'):  # Toggle ROI drawing mode
+        #     thread_controller.enable_roi_drawing_mode = not thread_controller.enable_roi_drawing_mode
+        #     if thread_controller.enable_roi_drawing_mode:
+        #         print("ROI drawing mode enabled. Draw a new ROI.")
+        #         roi_set = False
+        #         roi_points = []
+        #         temp_roi = []
+        #     else:
+        #         print("ROI drawing mode disabled.")
         elif key == ord('c') or key == ord('C'):  # Clear/Reset ROI
+            print("ROI Cleared. ROI drawing mode is now enabled. Draw a new ROI.")
             reset_roi(source_index)
             thread_controller.enable_roi_drawing_mode = True
         
