@@ -295,6 +295,8 @@ def draw_roi_overlay(frame, temp_roi, drawing=False, current_mouse_pos=None):
     
     return frame
 
+
+
 # Video processing function
 def video_processing_line(source_index):
     global enter_count, exit_count, total_enter_count, total_exit_count
@@ -427,7 +429,7 @@ def video_processing_line(source_index):
     print(f"Video processing thread for {source_name} stopped")
 
 # Video processing function for crowd counting
-def video_processing_crowd(source_index):
+def video_processing_crowd(source_index, on_close=None):
     global crowd_count, total_crowd_count, drawing, roi_points, temp_roi, roi_set
 
     source_name = f"Camera {source_index + 1}"
@@ -473,7 +475,6 @@ def video_processing_crowd(source_index):
     print("  Q : Record Video")
     print("  V : Visualization")
     print("  T : Toggle ROI display")
-    print("  D : Toggle ROI drawing mode")
     print("  C : Clear/Reset ROI")
 
     # NEW: ROI visualization toggle
@@ -668,10 +669,28 @@ def video_processing_crowd(source_index):
             print("ROI Cleared. ROI drawing mode is now enabled. Draw a new ROI.")
             reset_roi(source_index)
             thread_controller.enable_roi_drawing_mode = True
-        
+
+        def handle_close():
+            thread_controller.stop_event.set()
+            
+            # Wait for all threads to finish, but skip the current thread
+            current_thread = threading.current_thread()
+            for thread in thread_controller.threads:
+                if thread.is_alive() and thread != current_thread:
+                    thread.join(timeout=2.0)
+            
+            # # If video window is still open, close it
+            # if thread_controller.video_window_open:
+            cv2.destroyAllWindows()
+            
+            # Call the provided callback
+            if on_close:
+                on_close()
+            
         # Handle window close or ESC key
         if key == 27 or cv2.getWindowProperty(window_name, cv2.WND_PROP_VISIBLE) < 1:
             thread_controller.stop_event.set()
+            handle_close()
             break
     
     # Clean up
@@ -687,6 +706,10 @@ def video_processing_crowd(source_index):
 
     thread_controller.video_window_open = False
     print(f"Video processing thread for {source_name} stopped")
+
+    
+
+    
 
 def counter_window(on_close=None):
 # Tkinter setup
@@ -782,7 +805,7 @@ def start_threads(on_session_end=None):
             if COUNT_MODE == "line":
                 video_thread = threading.Thread(target=video_processing_line, args=(i,), daemon=True)
             else:
-                video_thread = threading.Thread(target=video_processing_crowd, args=(i,), daemon=True)
+                video_thread = threading.Thread(target=video_processing_crowd, args=(i, on_session_end,), daemon=True)
 
             video_thread.start()
             thread_controller.threads.append(video_thread)
@@ -790,9 +813,6 @@ def start_threads(on_session_end=None):
     db_thread = threading.Thread(target=insert_to_db,args=(thread_controller,), daemon=True)
     db_thread.start()
     thread_controller.threads.append(db_thread)
-
-    # Start the counter window
-    counter_window(on_close=on_session_end)
 
 # Selection window function
 def show_selection_window():
@@ -1292,11 +1312,11 @@ def show_selection_window():
         sel.withdraw()  # Hide instead of destroy
         
         # Define callback for when counter window closes
-        def on_counter_close():
+        def on_counting_close():
             try: sel.deiconify()
             except tk.TclError: show_selection_window()
-        # Start the threads and counter window
-        start_threads(on_session_end=on_counter_close)
+        # Start the threads
+        start_threads(on_session_end=on_counting_close)
 
     # Add buttons to selection window
     button_frame = tk.Frame(content_frame)
