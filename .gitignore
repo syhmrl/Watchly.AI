@@ -5,6 +5,8 @@ runs/
 __pycache__/
 model_data/
 deep_sort/
+Head-Detection-V2-1/
+yolo11_head_detection/
 venv
 *.zip
 *.pt

@@ -7,10 +7,8 @@ import queue
 import tkinter as tk
 import numpy as np
 import matplotlib.pyplot as plt
-import torch
 import matplotlib.dates as mdates
 
-from ultralytics import YOLO
 from datetime import datetime, date
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from tkcalendar import DateEntry
