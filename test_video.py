@@ -20,8 +20,8 @@ VIDEO_OUT_PATH = os.path.join('.', 'video', f'predicted_{VIDEO_NAME.split(".")[0
 VIDEO_SOURCE = VIDEO_PATH
 
 # Model used
-MODEL_NAME = "yolo11m.pt"
-CONFIDENCE_LEVEL = 0.25
+MODEL_NAME = "headv1.pt"
+CONFIDENCE_LEVEL = 0.5
 IOU = 0.5
 TRACKER = "bytetrack.yaml"
 
@@ -46,7 +46,7 @@ fps_avg_len = 200
 ENABLE_RAW_RECORDING = False
 ENABLE_PREDICTED_RECORDING = False
 
-SKIP_FRAME_BY_KEYPRESSED = 1 # 0 is yes 1 is play video as usual
+SKIP_FRAME_BY_KEYPRESSED = 0 # 0 is yes 1 is play video as usual
 
 # Connect to SQLite database
 conn = sqlite3.connect('watchly_ai.db', check_same_thread=False)
@@ -109,7 +109,7 @@ def video_processing_v1():
             frame,
             verbose=False,
             classes=[0],  # Track people only
-            conf=0.5,
+            # conf=0.5,
             persist=True,
             tracker="custom_tracker.yaml"
         )
@@ -426,7 +426,7 @@ def video_processing_crowd():
                 processed_out.write(visualization_frame)
 
         cv2.imshow(window_name, visualization_frame)
-        key = cv2.waitKey(1) & 0xFF
+        key = cv2.waitKey(SKIP_FRAME_BY_KEYPRESSED) & 0xFF
 
         # Handle window close or ESC key
         if key == 27 or cv2.getWindowProperty(window_name, cv2.WND_PROP_VISIBLE) < 1:
@@ -443,7 +443,8 @@ def video_processing_crowd():
             cv2.destroyWindow(window_name)  # Destroy specific window instead of all
     except cv2.error:
         pass  # Window was already closed by user
-
+    
+    print(f"Video: {VIDEO_NAME}")
     print(f"Crowd count: {crowd_count}")
     print(f"last tracked id: {track_id}")
     print(f"model: {MODEL_NAME}")

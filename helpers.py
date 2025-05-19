@@ -7,6 +7,7 @@ def load_model(model_name):
     """Load YOLO model on GPU if available, else CPU."""
     model = YOLO(model_name)
     if torch.cuda.is_available():
+        print("Using GPU")
         return model.to('cuda')
     return model
 

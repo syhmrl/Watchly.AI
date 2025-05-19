@@ -88,7 +88,7 @@ def main():
     #         image_list = [line.strip() for line in f if line.strip()]
     #     print(f"Loaded {len(image_list)} image filenames from {args.image_list}")
 
-    base_dir = "C:\\Users\\User\\Desktop\\head_data\\overhead_data\\train\\"
+    base_dir = "C:\\Users\\User\\Desktop\\head_data\\head_data\\train\\"
     source_img = f"{base_dir}images"
     source_lbl = f"{base_dir}labels"
     dest_img = f"{base_dir}copied_images"
