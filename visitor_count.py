@@ -35,7 +35,7 @@ CAMERA_SOURCES = [
 ]
 
 # Model used
-MODEL_NAME = "yolo11s.pt"
+MODEL_NAME = "headv1.pt"
 
 # Setup frame size
 FRAME_WIDTH = 1280

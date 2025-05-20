@@ -12,7 +12,7 @@ import torch
 from tracker import Tracker
 
 # Video testing setup
-VIDEO_NAME = 'masuk_u_test.mp4'
+VIDEO_NAME = 'headcount.avi'
 VIDEO_PATH = os.path.join('.', 'video', f'{VIDEO_NAME}')
 VIDEO_OUT_PATH = os.path.join('.', 'video', f'predicted_{VIDEO_NAME.split(".")[0]}.mp4')
 
@@ -21,7 +21,7 @@ VIDEO_SOURCE = VIDEO_PATH
 
 # Model used
 MODEL_NAME = "headv1.pt"
-CONFIDENCE_LEVEL = 0.5
+CONFIDENCE_LEVEL = 0.25
 IOU = 0.5
 TRACKER = "bytetrack.yaml"
 
@@ -46,7 +46,7 @@ fps_avg_len = 200
 ENABLE_RAW_RECORDING = False
 ENABLE_PREDICTED_RECORDING = False
 
-SKIP_FRAME_BY_KEYPRESSED = 0 # 0 is yes 1 is play video as usual
+SKIP_FRAME_BY_KEYPRESSED = 1 # 0 is yes 1 is play video as usual
 
 # Connect to SQLite database
 conn = sqlite3.connect('watchly_ai.db', check_same_thread=False)
