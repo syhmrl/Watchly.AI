@@ -12,7 +12,7 @@ import torch
 from tracker import Tracker
 
 # Video testing setup
-VIDEO_NAME = 'headcount.avi'
+VIDEO_NAME = 'masuk_u_test.mp4'
 VIDEO_PATH = os.path.join('.', 'video', f'{VIDEO_NAME}')
 VIDEO_OUT_PATH = os.path.join('.', 'video', f'predicted_{VIDEO_NAME.split(".")[0]}.mp4')
 
@@ -20,7 +20,7 @@ VIDEO_OUT_PATH = os.path.join('.', 'video', f'predicted_{VIDEO_NAME.split(".")[0
 VIDEO_SOURCE = VIDEO_PATH
 
 # Model used
-MODEL_NAME = "headv1.pt"
+MODEL_NAME = "headv3.pt"
 CONFIDENCE_LEVEL = 0.25
 IOU = 0.5
 TRACKER = "bytetrack.yaml"
@@ -44,7 +44,7 @@ fps_avg_len = 200
 
 # Recording settings
 ENABLE_RAW_RECORDING = False
-ENABLE_PREDICTED_RECORDING = False
+ENABLE_PREDICTED_RECORDING = True
 
 SKIP_FRAME_BY_KEYPRESSED = 1 # 0 is yes 1 is play video as usual
 
@@ -414,7 +414,7 @@ def video_processing_crowd():
             
         # Write processed frame to video
         if ENABLE_PREDICTED_RECORDING and processed_out is None:
-            recording_fps = 15.0
+            recording_fps = 30.0
             os.makedirs("video/testing", exist_ok=True)
             processed_filename = f"video/testing/test_{source_name}_crowd_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
             fourcc = cv2.VideoWriter_fourcc(*'mp4v')

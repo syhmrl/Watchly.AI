@@ -5,9 +5,9 @@ runs/
 __pycache__/
 model_data/
 deep_sort/
-Head-Detection-V2-*/
+Head-Detection-*-*/
 exp10-new/
-yolo11_head_detection/
+yolo11_head_detection*/
 .ipynb_checkpoints/
 venv
 *.zip
