@@ -28,4 +28,4 @@ def cleanup_stale(last_seen, frame_idx, max_missing, detection_count):
                 del last_seen[tid]
             if tid in detection_count:
                 del detection_count[tid]
-            # Note: We don't remove from tracked_ids to avoid recounting
+
