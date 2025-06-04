@@ -1139,82 +1139,6 @@ def video_processing_dispatcher(mode, source_index, on_close=None):
     else:
         raise ValueError(f"Unknown mode: {mode}")
 
-
-def counter_window(on_close=None):
-# Tkinter setup
-    BG_COLOR = 'cadet blue'
-    FG_COLOR = 'white'
-
-    root = tk.Tk()
-
-    if COUNT_MODE == "line":
-        root.title("People Enter Count - Line Mode")
-    else:
-        root.title("People Crowd Count - Crowd Mode")
-
-    root.configure(bg=BG_COLOR)
-    
-    # Store the update timer ID
-    label_update_id = None
-
-    # Configure grid
-    root.grid_rowconfigure(0, weight=1)
-    root.grid_rowconfigure(1, weight=1)
-    root.grid_columnconfigure(0, weight=1)
-
-    # Count label
-    label = tk.Label(root, text="People Counter\n0", font=("Helvetica", 54), bg=BG_COLOR, fg=FG_COLOR)
-
-    label.grid(row=0, column=0, sticky='ew', padx=0, pady=0)
-
-    def update_label():
-        nonlocal label_update_id
-        if thread_controller.stop_event.is_set():
-            return
-        
-        if COUNT_MODE == "line":
-            label.config(text=f"People Counter\n{total_enter_count}")
-        else:
-            label.config(text=f"People Counter\n{total_crowd_count}")
-
-        label_update_id = root.after(100, update_label)
-
-    def handle_close():
-        nonlocal label_update_id
-        if label_update_id is not None:
-            root.after_cancel(label_update_id)
-        
-        thread_controller.stop_event.set()
-        
-        # Wait for all threads to finish
-        for thread in thread_controller.threads:
-            if thread.is_alive():
-                thread.join(timeout=2.0)
-        
-        root.destroy()
-        
-        # # If video window is still open, close it
-        # if thread_controller.video_window_open:
-        cv2.destroyAllWindows()
-        
-        # Call the provided callback
-        if on_close:
-            on_close()
-
-    # Handle window close properly
-    root.protocol("WM_DELETE_WINDOW", handle_close)
-
-    # Fullscreen toggle
-    root.bind("<F11>", lambda event: root.attributes("-fullscreen",
-                                        not root.attributes("-fullscreen")))
-    root.bind("<Escape>", lambda event: root.attributes("-fullscreen", False))
-
-    # Start updating label
-    update_label()
-
-    # Start Tkinter mainloop
-    root.mainloop()
-
 # Start the tracking threads
 def start_threads(on_session_end=None):
     # Reset the thread controller
@@ -1290,7 +1214,7 @@ def show_selection_window():
     # Start date/time frame
     start_frame = tk.LabelFrame(date_time_frame, text="Start", padx=5, pady=5)
     start_frame.grid(row=0, column=0, padx=5, pady=5, sticky='w')
-
+    
     # Start date
     start_date_entry = DateEntry(start_frame, date_pattern='yyyy-MM-dd')
     start_date_entry.grid(row=0, column=0, padx=5, pady=5)

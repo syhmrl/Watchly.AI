@@ -1,0 +1,16 @@
+{
+  "CAM_USERNAME": "admin",
+  "CAM_PASSWORD": "Abcdefghi1",
+  "CAM_IP": [
+    "192.168.1.64",
+    "192.168.1.65"
+  ],
+  "CAMERA_SOURCES": [
+    0
+  ],
+  "MODEL_NAME": "headv1.pt",
+  "FRAME_WIDTH": 1280,
+  "FRAME_HEIGHT": 720,
+
+  "DATABASE_PATH": "watchly_ai.db"
+}

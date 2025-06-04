@@ -20,12 +20,9 @@ def calculate_fps(frame_rate_buffer, t_start, fps_avg_len):
         frame_rate_buffer.pop(0)
     return np.mean(frame_rate_buffer)
 
-def cleanup_stale(last_seen, frame_idx, max_missing, detection_count):
-    """Remove IDs not seen in the last max_missing frames."""
+def cleanup_stale(last_seen, frame_idx, max_missing, *dicts_to_clean):
     for tid in list(last_seen):
-        if frame_idx - last_seen.get(tid, frame_idx) > max_missing:
-            if tid in last_seen:
-                del last_seen[tid]
-            if tid in detection_count:
-                del detection_count[tid]
-
+        if frame_idx - last_seen[tid] > max_missing:
+            del last_seen[tid]
+            for d in dicts_to_clean:
+                d.pop(tid, None)
