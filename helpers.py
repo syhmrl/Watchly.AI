@@ -11,7 +11,7 @@ def load_model(model_name):
         return model.to('cuda')
     return model
 
-def calculate_fps(frame_rate_buffer, t_start, fps_avg_len):
+def calculate_fps(frame_rate_buffer, t_start, fps_avg_len = 200):
     """Update fps buffer and return average FPS."""
     t_stop = time.perf_counter()
     fps = 1 / (t_stop - t_start)
@@ -20,7 +20,8 @@ def calculate_fps(frame_rate_buffer, t_start, fps_avg_len):
         frame_rate_buffer.pop(0)
     return np.mean(frame_rate_buffer)
 
-def cleanup_stale(last_seen, frame_idx, max_missing, *dicts_to_clean):
+def cleanup_stale(last_seen, frame_idx, *dicts_to_clean):
+    max_missing = 400
     for tid in list(last_seen):
         if frame_idx - last_seen[tid] > max_missing:
             del last_seen[tid]

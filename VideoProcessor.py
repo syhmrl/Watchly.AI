@@ -27,9 +27,6 @@ total_enter_count = 0
 total_exit_count = 0
 total_crowd_count = 0  # New total for crowd counting
 
-# Setup framerate variable
-fps_avg_len = 200
-
 # Recording settings
 ENABLE_RAW_RECORDING = False
 ENABLE_PREDICTED_RECORDING = False
@@ -53,6 +50,7 @@ editing_mode  = False
 selected_line = None
 line_colors   = [(0, 255, 0), (0, 165, 255), (0, 0, 255)]  # Green, Orange, Red
 
+random_colors = [(random.randint(0, 255), random.randint(0, 255), random.randint(0, 255)) for _ in range(100)]
 
 # Region of Interest settings
 ENABLE_ROI = True  # Set to True to only count people in a specific region
@@ -646,7 +644,7 @@ def video_processing_line(source_index, on_close=None):
         cleanup_stale(last_seen, frame_idx, MAX_MISSING, tracked_ids, previous_centroids)
 
         # Calculate and display FPS
-        avg_frame_rate = calculate_fps(frame_rate_buffer, t_start, fps_avg_len)
+        avg_frame_rate = calculate_fps(frame_rate_buffer, t_start)
 
         if thread_controller.enable_visual:
             cv2.putText(visualization_frame, f"FPS: {avg_frame_rate:.1f}", (10, FRAME_HEIGHT - 20), 
@@ -752,7 +750,6 @@ def video_processing_crowd(source_index, on_close=None):
     tracked_ids = {}
     last_seen = {}
     frame_idx = 0
-    MAX_MISSING = 400  # Number of frames before considering a track lost
     frame_rate_buffer = []
     avg_frame_rate = 0
     colors = [(random.randint(0, 255), random.randint(0, 255), random.randint(0, 255)) for _ in range(100)]
@@ -909,10 +906,10 @@ def video_processing_crowd(source_index, on_close=None):
                         cv2.putText(visualization_frame, f"ID: {track_id}", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
 
             # Clean up tracks that haven't been seen recently
-            cleanup_stale(last_seen, frame_idx, MAX_MISSING, detection_count)
+            cleanup_stale(last_seen, frame_idx, detection_count)
 
             # Calculate and display FPS
-            avg_frame_rate = calculate_fps(frame_rate_buffer, t_start, fps_avg_len)
+            avg_frame_rate = calculate_fps(frame_rate_buffer, t_start)
 
             if thread_controller.enable_visual:
                 cv2.putText(visualization_frame, f"FPS: {avg_frame_rate:.1f}", (10, FRAME_HEIGHT - 20), 
@@ -1010,3 +1007,42 @@ def video_processing_dispatcher(mode, source_index, on_close=None):
         video_processing_crowd(source_index, on_close)
     else:
         raise ValueError(f"Unknown mode: {mode}")
+    
+def model_frame(model, frame):
+
+    results = model.track(
+        frame,
+        verbose=False,
+        classes=[0],  # Track people only
+        conf=0.4,
+        iou=0.5,
+        stream=True,
+        stream_buffer=True,
+        persist=True,
+        tracker="custom_tracker.yaml"
+    )
+
+    return results
+
+def init_record(source_name, recording_fps = 15):
+    os.makedirs("video/processed", exist_ok=True)
+    filename = f"video/processed/processed_{source_name}_crowd_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+    out = cv2.VideoWriter(filename, fourcc, recording_fps, (FRAME_WIDTH, FRAME_HEIGHT))
+    print("Recording started:", source_name)
+
+    return out
+
+def display_fps(fps, frame):
+    cv2.putText(frame, f"FPS: {fps:.1f}", (10, FRAME_HEIGHT - 20), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+
+def display_crowd_count(crowd_count, frame):
+    cv2.putText(frame, f"Crowd Count: {crowd_count}", (10, 40), cv2.FONT_HERSHEY_SIMPLEX, 1.5, (0, 255, 0), 4)
+
+def display_inframe_count(inframe_count, frame):
+    cv2.putText(frame, f"In-frame Count: {inframe_count}", (10, 80), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0,255,255), 3)
+
+def count_to_db(source_name, tid, direction, mode):
+    # Record in database
+    timestamp = datetime.now().isoformat()
+    thread_controller.pending_inserts.put((source_name, tid, direction, timestamp, mode))

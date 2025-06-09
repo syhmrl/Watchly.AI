@@ -8,6 +8,7 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from tkcalendar import DateEntry
 from tkinter import messagebox
 from database_utils import Database, get_total_counts, get_grouped_counts
+from EmbeddedFrame import EmbeddedFrame
 
 COUNT_MODE = "LINE"
 CAMERA_SOURCES = VideoProcessor.CAMERA_SOURCES
@@ -443,9 +444,9 @@ def show_selection_window():
         m = mode_var.get()
         if m == 0:
             # Start fresh
-            VideoProcessor.enter_count       = [0 for _ in CAMERA_SOURCES]
-            VideoProcessor.exit_count        = [0 for _ in CAMERA_SOURCES]
-            VideoProcessor.crowd_count       = [0 for _ in CAMERA_SOURCES]
+            VideoProcessor.enter_count = [0 for _ in CAMERA_SOURCES]
+            VideoProcessor.exit_count = [0 for _ in CAMERA_SOURCES]
+            VideoProcessor.crowd_count = [0 for _ in CAMERA_SOURCES]
             VideoProcessor.total_enter_count = 0
             VideoProcessor.total_exit_count  = 0
             VideoProcessor.total_crowd_count = 0
@@ -461,13 +462,29 @@ def show_selection_window():
         # Hide selection window and start threads
         sel.withdraw()  # Hide instead of destroy
         
+        
+        # Start the threads
+        # thread_controller.reset()
+        start_threads()
+        
         # Define callback for when counter window closes
         def on_counting_close():
+            # Stop all threads
+            thread_controller.stop_event.set()
+            # join threads
+            for t in thread_controller.threads:
+                if t.is_alive():
+                    t.join(timeout=1.0)
+            # Re‐show the selection window
             try: sel.deiconify()
             except tk.TclError: show_selection_window()
         
-        # Start the threads
-        start_threads(COUNT_MODE, on_session_end=on_counting_close)
+        # Create a new window for the detector UI
+        crowd_win = tk.Toplevel(sel)
+        crowd_win.title("Crowd Detection")
+        # Pass either source_index=0 or loop for multiple sources
+        app = EmbeddedFrame(crowd_win, source_index=0, on_close=on_counting_close)
+        
 
     # Add buttons to selection window
     button_frame = tk.Frame(content_frame)

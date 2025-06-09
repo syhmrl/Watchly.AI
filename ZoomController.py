@@ -21,6 +21,11 @@ class ZoomController:
         self.zoom_factor = max(self.zoom_factor - ZOOM_STEP, 1.0)
         return self.zoom_factor
     
+    def reset_zoom(self):
+        self.zoom_factor = INITIAL_ZOOM
+        self.zoom_center_x = 0.5
+        self.zoom_center_y = 0.5
+    
     def apply_zoom(self, frame):
         """Apply digital zoom to the frame"""
         if self.zoom_factor <= 1.0:

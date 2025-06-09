@@ -128,7 +128,7 @@ def insert_to_db(thread_controller):
 
     print("Database insertion thread stopped")
 
-def get_total_counts(start_ts, end_ts, mode_type):
+def get_total_counts(start_ts, end_ts):
     db = Database()
     _, cursor = db.get_connection()
 
