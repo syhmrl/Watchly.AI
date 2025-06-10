@@ -7,7 +7,7 @@ from datetime import datetime, date
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from tkcalendar import DateEntry
 from tkinter import messagebox
-from database_utils import Database, get_total_counts, get_grouped_counts
+from database_utils import *
 from EmbeddedFrame import EmbeddedFrame
 
 COUNT_MODE = "LINE"
@@ -147,8 +147,6 @@ def show_selection_window():
     # Initialize count for custom date range
     def init_custom_counts():
         global enter_count, exit_count, total_enter_count, total_exit_count, crowd_count, total_crowd_count
-        db = Database()
-        _, cursor = db.get_connection()
 
         try:
             # Get start date and time
@@ -172,11 +170,9 @@ def show_selection_window():
             total_crowd_count = 0
 
             if COUNT_MODE == "LINE":
-                cursor.execute("""SELECT direction, COUNT(*) FROM crossing_events 
-                                WHERE timestamp BETWEEN ? AND ? AND mode_type = ? GROUP BY direction""",
-                                (s, e, COUNT_MODE.lower()))
+                data = get_total_counts_line_mode(s, e, COUNT_MODE.lower())
                 
-                for d, c in cursor.fetchall():
+                for d, c in data:
                     if d == 'enter':
                         total_enter_count = c
                     else:
@@ -186,11 +182,7 @@ def show_selection_window():
                 enter_count[0] = total_enter_count
                 exit_count[0] = total_exit_count
             elif COUNT_MODE == "CROWD":
-                cursor.execute("""SELECT COUNT(*) FROM crossing_events 
-                              WHERE timestamp BETWEEN ? AND ? AND mode_type = ?""",
-                              (s, e, COUNT_MODE.lower()))
-                
-                total_crowd_count = cursor.fetchone()[0] or 0
+                total_crowd_count = get_total_counts_crowd_mode(s, e, COUNT_MODE.lower())
                 
                 # Set the first camera's count to the total
                 crowd_count[0] = total_crowd_count
@@ -403,10 +395,10 @@ def show_selection_window():
         if visualization == "bar":
             ax.bar(time_periods, counts, width=0.8)
         elif visualization == "line":
-            ax.plot(time_periods, counts, marker='o', linestyle='-', linewidth=2)
+            ax.plot(time_periods, counts, linestyle='-', linewidth=1)
         elif visualization == "area":
             ax.fill_between(time_periods, counts, alpha=0.4)
-            ax.plot(time_periods, counts, marker='o', linestyle='-', linewidth=2)
+            ax.plot(time_periods, counts, linestyle='-', linewidth=1)
         
         # Format x-axis based on resolution
         if resolution == "second" or resolution == "minute":

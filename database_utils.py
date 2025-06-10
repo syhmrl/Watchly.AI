@@ -156,3 +156,27 @@ def get_grouped_counts(start_ts, end_ts, groupby):
 
     return data
         
+def get_total_counts_line_mode(start_ts, end_ts, mode):
+    db = Database()
+    _, cursor = db.get_connection()
+
+    # Get total count
+    cursor.execute("""SELECT direction, COUNT(*) FROM crossing_events 
+                                WHERE timestamp BETWEEN ? AND ? AND mode_type = ? GROUP BY direction""",
+                                (start_ts, end_ts, mode))
+    data = cursor.fetchone()
+
+    return data
+
+def get_total_counts_crowd_mode(start_ts, end_ts, mode):
+    db = Database()
+    _, cursor = db.get_connection()
+    
+    # Get total count
+    cursor.execute("""SELECT COUNT(*) FROM crossing_events 
+                              WHERE timestamp BETWEEN ? AND ? AND mode_type = ?""",
+                              (start_ts, end_ts, mode))
+
+    count = cursor.fetchone()[0] or 0
+
+    return count
