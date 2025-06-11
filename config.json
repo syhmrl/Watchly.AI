@@ -12,5 +12,23 @@
   "FRAME_WIDTH": 1280,
   "FRAME_HEIGHT": 720,
 
-  "DATABASE_PATH": "watchly_ai.db"
+  "DATABASE_PATH": "watchly_ai.db",
+
+  "default_setting": {
+    "tracker_type": "botsort", 
+    "track_high_thresh": 0.3, 
+    "track_low_thresh": 0.2, 
+    "new_track_thresh": 0.30, 
+    "track_buffer": 1000, 
+    "match_thresh": 0.7, 
+    "fuse_score": "True", 
+
+    "gmc_method": "sparseOptFlow" ,
+
+    "proximity_thresh": 0.5, 
+    "appearance_thresh": 0.4, 
+    "with_reid": "True",
+    "model": "auto"
+  }
+  
 }

@@ -2,11 +2,12 @@ import tkinter as tk
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 import VideoProcessor
+import os
 
 from datetime import datetime, date
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from tkcalendar import DateEntry
-from tkinter import messagebox
+from tkinter import messagebox, ttk
 from database_utils import *
 from EmbeddedFrame import EmbeddedFrame
 
@@ -497,6 +498,15 @@ def show_selection_window():
         width=15
     )
     start_button.pack(side=tk.RIGHT, padx=5)
+    
+    # Video Analysis button
+    video_button = tk.Button(
+        button_frame,
+        text="Video Analysis",
+        command=lambda: open_video_analysis(sel),
+        width=15
+    )
+    video_button.pack(side=tk.LEFT, padx=5)
 
     # Handle window close properly
     def on_close():
@@ -510,3 +520,155 @@ def show_selection_window():
     
     # Start the main loop for selection window
     sel.mainloop()
+
+def open_video_analysis(sel):
+    # Hide main menu
+    sel.withdraw()
+
+    def on_va_close():
+        # When this window closes, re-show menu
+        try:
+            sel.deiconify()
+        except tk.TclError:
+            # if menu was destroyed, recreate
+            show_selection_window()
+        va_win.destroy()
+
+    # Create Video Analysis window
+    va_win = tk.Toplevel(sel)
+    va_win.title("Video Analysis")
+    va_win.geometry("600x600")
+    va_win.protocol("WM_DELETE_WINDOW", on_va_close)
+
+    # --- Video Selection ---
+    tk.Label(va_win, text="Select Video:").pack(anchor="w", pady=(10,0), padx=10)
+    video_files = [f for f in os.listdir("video") if f.lower().endswith((".mp4", ".avi"))]
+    video_var = tk.StringVar(value=video_files[0] if video_files else "")
+    ttk.OptionMenu(va_win, video_var, video_var.get(), *video_files).pack(fill="x", padx=10)
+
+    # --- Class Selection ---
+    tk.Label(va_win, text="Select Class:").pack(anchor="w", pady=(10,0), padx=10)
+    class_var = tk.StringVar(value="head")
+    ttk.OptionMenu(va_win, class_var, "head", "head", "person").pack(fill="x", padx=10)
+
+    # --- Model Selection ---
+    tk.Label(va_win, text="Select Model:").pack(anchor="w", pady=(10,0), padx=10)
+    model_var = tk.StringVar()
+    head_models   = ["headv1", "headv2", "headv3"]
+    person_models = ["yolo11n", "yolo11s", "yolo11m", "yolo11l"]
+    model_menu = ttk.OptionMenu(va_win, model_var, head_models[0], *head_models)
+    model_menu.pack(fill="x", padx=10)
+
+    def update_model_menu(*_):
+        cls = class_var.get()
+        opts = head_models if cls=="head" else person_models
+        model_var.set(opts[0])
+        model_menu["menu"].delete(0, "end")
+        for m in opts:
+            model_menu["menu"].add_command(label=m, command=tk._setit(model_var, m))
+
+    class_var.trace_add("write", update_model_menu)
+
+    # --- Parameters: Default / Custom ---
+    tk.Label(va_win, text="Model Parameters:").pack(anchor="w", pady=(10,0), padx=10)
+    param_var = tk.StringVar(value="default")
+    param_menu = ttk.OptionMenu(va_win, param_var, "default", "default", "custom")
+    param_menu.pack(fill="x", padx=10)
+
+    # Frame to hold custom-parameter widgets
+    custom_frame = tk.Frame(va_win, relief="groove", borderwidth=1, padx=10, pady=10)
+    custom_frame.pack(fill="x", padx=10, pady=(5,10))
+    custom_frame.pack_forget()  # hidden until “custom” chosen
+
+    # Confidence & IOU
+    tk.Label(custom_frame, text="Confidence:").grid(row=0, column=0, sticky="e")
+    conf_entry = tk.Entry(custom_frame)
+    conf_entry.grid(row=0, column=1, sticky="w")
+    conf_entry.insert(0, "0.3")
+
+    tk.Label(custom_frame, text="IoU:").grid(row=1, column=0, sticky="e")
+    iou_entry = tk.Entry(custom_frame)
+    iou_entry.grid(row=1, column=1, sticky="w")
+    iou_entry.insert(0, "0.5")
+
+    # Tracker file default/custom
+    tk.Label(custom_frame, text="Tracker File:").grid(row=2, column=0, sticky="e")
+    tracker_var = tk.StringVar(value="default")
+    tracker_menu = ttk.OptionMenu(custom_frame, tracker_var, "default", "default", "custom")
+    tracker_menu.grid(row=2, column=1, sticky="w")
+
+    # Nested tracker custom options frame
+    tracker_frame = tk.Frame(custom_frame, padx=5, pady=5)
+    tracker_frame.grid(row=3, column=0, columnspan=2, sticky="we")
+    tracker_frame.grid_remove()
+
+    # Tracker Type
+    tk.Label(tracker_frame, text="Tracker Type:").grid(row=0, column=0, sticky="e")
+    track_type_var = tk.StringVar(value="bytesort")
+    ttk.OptionMenu(tracker_frame, track_type_var, "bytesort", "bytesort", "botsort").grid(row=0, column=1, sticky="w")
+
+    # Bytesort thresholds
+    tk.Label(tracker_frame, text="High Thresh:").grid(row=1, column=0, sticky="e")
+    high_thresh = tk.Entry(tracker_frame); high_thresh.grid(row=1, column=1)
+    high_thresh.insert(0, "0.6")
+    tk.Label(tracker_frame, text="Low Thresh:").grid(row=2, column=0, sticky="e")
+    low_thresh  = tk.Entry(tracker_frame); low_thresh.grid(row=2, column=1)
+    low_thresh.insert(0, "0.3")
+
+    # botsort extra
+    botsort_frame = tk.Frame(tracker_frame, padx=5, pady=5)
+    botsort_frame.grid(row=4, column=0, columnspan=2, sticky="we")
+    botsort_frame.grid_remove()
+
+    tk.Label(botsort_frame, text="GMC Method:").grid(row=0, column=0, sticky="e")
+    ttk.Label(botsort_frame, text="sparseOptFlow").grid(row=0, column=1, sticky="w")
+
+    tk.Label(botsort_frame, text="Proximity Thresh:").grid(row=1, column=0, sticky="e")
+    prox_thresh = tk.Entry(botsort_frame); prox_thresh.grid(row=1, column=1); prox_thresh.insert(0, "0.2")
+
+    tk.Label(botsort_frame, text="Appearance Thresh:").grid(row=2, column=0, sticky="e")
+    app_thresh  = tk.Entry(botsort_frame); app_thresh.grid(row=2, column=1); app_thresh.insert(0, "0.4")
+
+    # Toggle custom_frame on param_var change
+    def on_param_change(*_):
+        if param_var.get() == "custom":
+            custom_frame.pack(fill="x", padx=10, pady=(5,10))
+        else:
+            custom_frame.pack_forget()
+    param_var.trace_add("write", on_param_change)
+
+    # Toggle tracker_frame on tracker_var change
+    def on_tracker_change(*_):
+        if tracker_var.get() == "custom":
+            tracker_frame.grid()
+        else:
+            tracker_frame.grid_remove()
+    tracker_var.trace_add("write", on_tracker_change)
+
+    # Toggle botsort_frame on track_type_var change
+    def on_tracktype_change(*_):
+        if track_type_var.get() == "botsort":
+            botsort_frame.grid()
+        else:
+            botsort_frame.grid_remove()
+    track_type_var.trace_add("write", on_tracktype_change)
+
+    # Buttons: Start analysis & Reset defaults
+    btn_frame = tk.Frame(va_win)
+    btn_frame.pack(fill="x", pady=10)
+    tk.Button(btn_frame, text="Start", command=lambda: messagebox.showinfo("Start", "Analysis would start")).pack(side=tk.LEFT, padx=5)
+    tk.Button(btn_frame, text="Reset", command=lambda: reset_defaults()).pack(side=tk.LEFT, padx=5)
+    
+    def reset_defaults():
+        # reset all controls to default
+        video_var.set(video_files[0] if video_files else "")
+        class_var.set("head"); update_model_menu()
+        param_var.set("default"); on_param_change()
+        tracker_var.set("default"); on_tracker_change()
+        track_type_var.set("bytesort"); on_tracktype_change()
+        conf_entry.delete(0, tk.END); conf_entry.insert(0,"0.3")
+        iou_entry.delete(0, tk.END); iou_entry.insert(0,"0.5")
+        high_thresh.delete(0, tk.END); high_thresh.insert(0,"0.6")
+        low_thresh.delete(0, tk.END); low_thresh.insert(0,"0.3")
+        prox_thresh.delete(0, tk.END); prox_thresh.insert(0,"0.2")
+        app_thresh.delete(0, tk.END); app_thresh.insert(0,"0.4")

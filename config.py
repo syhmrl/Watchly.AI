@@ -70,3 +70,5 @@ def set_frame_size(width, height):
     data["FRAME_WIDTH"]  = width
     data["FRAME_HEIGHT"] = height
     _save(data)
+    
+    
