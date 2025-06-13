@@ -29,11 +29,11 @@ def get_camera_ips():
 
 def get_model_name():
     data = _load()
-    return data["MODEL_NAME"]
+    return data["model_default_setting"]["model"]
 
 def get_frame_size():
     data = _load()
-    return (data["FRAME_WIDTH"], data["FRAME_HEIGHT"])
+    return (data["video_parameters"]["width"], data["video_parameters"]["height"])
 
 def get_camera_sources():
     data = _load()
@@ -53,6 +53,14 @@ def get_database_path():
     data = _load()
     return data["DATABASE_PATH"]
 
+def get_model_conf():
+    data = _load()
+    return data["model_default_setting"]["conf"]
+
+def get_model_iou():
+    data = _load()
+    return data["model_default_setting"]["iou"]
+
 # Write‐back functions:
 
 def set_camera_ips(new_ip_list):
@@ -62,13 +70,22 @@ def set_camera_ips(new_ip_list):
 
 def set_model_name(new_model):
     data = _load()
-    data["MODEL_NAME"] = new_model
+    data["model_default_setting"]["model"] = new_model
     _save(data)
 
 def set_frame_size(width, height):
     data = _load()
-    data["FRAME_WIDTH"]  = width
-    data["FRAME_HEIGHT"] = height
+    data["video_parameters"]["width"]  = width
+    data["video_parameters"]["height"] = height
     _save(data)
     
+def set_model_conf(new_conf):
+    data = _load()
+    data["model_default_setting"]["conf"] = new_conf
+    _save(data)
+    
+def set_model_iou(new_iou):
+    data = _load()
+    data["model_default_setting"]["iou"] = new_iou
+    _save(data)
     

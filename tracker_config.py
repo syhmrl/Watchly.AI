@@ -39,7 +39,7 @@ def reset_tracker_to_defaults():
     # Load defaults from config.json
     with open(_CONFIG_PATH, 'r') as f:
         cfg = json.load(f)
-    defaults = cfg.get("default_setting", {})
+    defaults = cfg.get("tracker_default_setting", {})
     if not defaults:
         raise KeyError("No 'default_setting' found in config.json")
 
@@ -57,16 +57,3 @@ def confirm_tracker_settings():
     Reloads and returns the settings from YAML for confirmation.
     """
     return _load_yaml()
-
-
-# Example usage:
-if __name__ == "__main__":
-    print("Current tracker settings:")
-    print(get_tracker_settings())
-
-    print("\nResetting to defaults...")
-    defaults = reset_tracker_to_defaults()
-    print("Defaults applied:", defaults)
-
-    print("\nConfirm YAML now contains:")
-    print(confirm_tracker_settings())

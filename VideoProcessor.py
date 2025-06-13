@@ -1014,10 +1014,24 @@ def model_frame(model, frame):
         frame,
         verbose=False,
         classes=[0],  # Track people only
-        conf=0.4,
-        iou=0.5,
+        conf=config.get_model_conf(),
+        iou=config.get_model_iou(),
         stream=True,
         stream_buffer=True,
+        persist=True,
+        tracker="custom_tracker.yaml"
+    )
+
+    return results
+
+def model_video(model, frame):
+
+    results = model.track(
+        frame,
+        verbose=False,
+        classes=[0],  # Track people only
+        conf=config.get_model_conf(),
+        iou=config.get_model_iou(),
         persist=True,
         tracker="custom_tracker.yaml"
     )
@@ -1029,6 +1043,15 @@ def init_record(source_name, recording_fps = 15):
     filename = f"video/processed/processed_{source_name}_crowd_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
     out = cv2.VideoWriter(filename, fourcc, recording_fps, (FRAME_WIDTH, FRAME_HEIGHT))
+    print("Recording started:", source_name)
+
+    return out
+
+def init_video_record(source_name, recording_fps = 15, width = FRAME_WIDTH, height = FRAME_HEIGHT):
+    os.makedirs("video/testing", exist_ok=True)
+    filename = f"video/testing/test_{source_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+    out = cv2.VideoWriter(filename, fourcc, recording_fps, (width, height))
     print("Recording started:", source_name)
 
     return out
@@ -1046,3 +1069,4 @@ def count_to_db(source_name, tid, direction, mode):
     # Record in database
     timestamp = datetime.now().isoformat()
     thread_controller.pending_inserts.put((source_name, tid, direction, timestamp, mode))
+    

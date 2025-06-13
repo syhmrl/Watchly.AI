@@ -32,6 +32,33 @@ class Database:
                 mode_type TEXT DEFAULT 'line'
             )
         ''')
+        
+        self._cursor.execute('''
+            CREATE TABLE IF NOT EXISTS video_analysis (
+                id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+                video_name           TEXT    NOT NULL,
+                video_width          INTEGER NOT NULL,
+                video_height         INTEGER NOT NULL,
+                video_fps            INTEGER NOT NULL,
+                total_count          INTEGER NOT NULL,
+                model_name           TEXT    NOT NULL,
+                confidence           REAL    NOT NULL,
+                iou                  REAL    NOT NULL,
+                last_tracked_id      INTEGER,
+                tracker_type         TEXT    NOT NULL,
+                track_high_thresh    REAL    NOT NULL,
+                track_low_thresh     REAL    NOT NULL,
+                new_track_thresh     REAL    NOT NULL,
+                track_buffer         INTEGER NOT NULL,
+                match_thresh         REAL    NOT NULL,
+                fuse_score           INTEGER NOT NULL,
+                gmc_method           TEXT,
+                proximity_thresh     REAL,
+                appearance_thresh    REAL,
+                with_reid            INTEGER,
+                tracker_model        TEXT
+            );
+        ''')
 
         self._connection.commit()
     
@@ -44,38 +71,6 @@ class Database:
             self._connection = None
             self._cursor = None
             Database._instance = None
-
-    # def insert_events(self, list_of_tuples):
-    #     try:
-    #         conn, cursor = self.get_connection()
-    #         with conn:
-    #             cursor.executemany(
-    #                 "INSERT INTO crossing_events (source, track_id, direction, timestamp, mode_type) VALUES (?, ?, ?, ?, ?)",
-    #                 list_of_tuples
-    #             )
-    #     except sqlite3.Error as e:
-    #         print(f"Database error: {e}")
-
-    # # Database insert function
-    # def insert_to_db(self, thread_controller):
-    #     batch = []
-    #     while not thread_controller.stop_event.is_set() or not thread_controller.pending_inserts.empty():
-    #         try:
-    #             item = thread_controller.pending_inserts.get(timeout=0.5)
-    #             batch.append(item)
-    #             # Keep draining until queue is empty
-    #             while True:
-    #                 try:
-    #                     batch.append(thread_controller.pending_inserts.get_nowait())
-    #                 except queue.Empty:
-    #                     break
-    #         except queue.Empty:
-    #             pass
-
-    #         if batch:
-    #             self.insert_events(batch)
-    #             batch.clear()
-
 
 
 def insert_to_db(thread_controller):
@@ -127,6 +122,54 @@ def insert_to_db(thread_controller):
             print(f"Database error during final insert: {e}")
 
     print("Database insertion thread stopped")
+    
+def insert_video_analysis(
+    video_name, video_width, video_height, video_fps,
+    total_count, model_name, confidence, iou,
+    last_tracked_id, tracker_settings
+):
+    """
+    Insert a single summary row into video_analysis.
+    tracker_settings should be your dict loaded from YAML.
+    """
+    db = Database()
+    conn, cur = db.get_connection()
+    ts = tracker_settings
+    cur.execute("""
+        INSERT INTO video_analysis (
+          video_name, video_width, video_height, video_fps,
+          total_count, model_name, confidence, iou,
+          last_tracked_id, tracker_type, track_high_thresh,
+          track_low_thresh, new_track_thresh, track_buffer,
+          match_thresh, fuse_score, gmc_method, proximity_thresh,
+          appearance_thresh, with_reid, tracker_model
+        ) VALUES (
+          ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
+        )
+    """, (
+        video_name,
+        video_width,
+        video_height,
+        int(video_fps),
+        total_count,
+        model_name,
+        confidence,
+        iou,
+        last_tracked_id,
+        ts["tracker_type"],
+        ts["track_high_thresh"],
+        ts["track_low_thresh"],
+        ts["new_track_thresh"],
+        ts["track_buffer"],
+        ts["match_thresh"],
+        1 if ts["fuse_score"] else 0,
+        ts.get("gmc_method"),
+        ts.get("proximity_thresh"),
+        ts.get("appearance_thresh"),
+        1 if ts.get("with_reid") else 0,
+        ts.get("model")
+    ))
+    conn.commit()
 
 def get_total_counts(start_ts, end_ts):
     db = Database()
