@@ -1060,10 +1060,10 @@ def display_fps(fps, frame):
     cv2.putText(frame, f"FPS: {fps:.1f}", (10, FRAME_HEIGHT - 20), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
 
 def display_crowd_count(crowd_count, frame):
-    cv2.putText(frame, f"Crowd Count: {crowd_count}", (10, 40), cv2.FONT_HERSHEY_SIMPLEX, 1.5, (0, 255, 0), 4)
+    cv2.putText(frame, f"Crowd Count: {crowd_count}", (10, 40), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 255, 0), 3)
 
 def display_inframe_count(inframe_count, frame):
-    cv2.putText(frame, f"In-frame Count: {inframe_count}", (10, 80), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0,255,255), 3)
+    cv2.putText(frame, f"In-frame Count: {inframe_count}", (10, 80), cv2.FONT_HERSHEY_SIMPLEX, 1, (0,255,255), 2)
 
 def count_to_db(source_name, tid, direction, mode):
     # Record in database

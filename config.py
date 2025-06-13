@@ -61,6 +61,10 @@ def get_model_iou():
     data = _load()
     return data["model_default_setting"]["iou"]
 
+def get_roi_values():
+    data = _load()
+    return data.get('roi_values', {})
+
 # Write‐back functions:
 
 def set_camera_ips(new_ip_list):
@@ -87,5 +91,10 @@ def set_model_conf(new_conf):
 def set_model_iou(new_iou):
     data = _load()
     data["model_default_setting"]["iou"] = new_iou
+    _save(data)
+    
+def set_roi_values(roi_name, roi_data):
+    data = _load()
+    data["roi_values"][roi_name] = roi_data
     _save(data)
     
