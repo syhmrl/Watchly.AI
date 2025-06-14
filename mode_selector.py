@@ -206,7 +206,7 @@ def show_selection_window():
     def open_query_window():
         query_win = tk.Toplevel(sel)
         query_win.title("Query People Entering")
-        query_win.geometry("900x700")
+        query_win.geometry("1000x800")
         query_win.grab_set()  # Make window modal
         
         # Create frames for better organization
@@ -261,6 +261,54 @@ def show_selection_window():
         end_sec = tk.Spinbox(time_frame, from_=0, to=59, width=2, format="%02.0f")
         end_sec.grid(row=0, column=4)
         
+        # Filtering options
+        filter_frame = tk.LabelFrame(control_frame, text="Filters", padx=10, pady=10)
+        filter_frame.pack(fill=tk.X, pady=10)
+        
+        # Mode selection
+        mode_frame = tk.Frame(filter_frame)
+        mode_frame.grid(row=0, column=0, padx=10, pady=5, sticky='w')
+        
+        tk.Label(mode_frame, text="Mode:").grid(row=0, column=0, sticky='w')
+        mode_var = tk.StringVar(value="all")
+        mode_combo = ttk.Combobox(mode_frame, textvariable=mode_var, values=["all", "crowd", "video"], 
+                                 state="readonly", width=10)
+        mode_combo.grid(row=0, column=1, padx=5)
+        
+        # Source selection
+        source_frame = tk.Frame(filter_frame)
+        source_frame.grid(row=0, column=1, padx=10, pady=5, sticky='w')
+        
+        tk.Label(source_frame, text="Source:").grid(row=0, column=0, sticky='w')
+        source_var = tk.StringVar(value="all")
+        source_combo = ttk.Combobox(source_frame, textvariable=source_var, state="readonly", width=15)
+        source_combo.grid(row=0, column=1, padx=5)
+        
+         # Direction selection
+        direction_frame = tk.Frame(filter_frame)
+        direction_frame.grid(row=0, column=2, padx=10, pady=5, sticky='w')
+        
+        tk.Label(direction_frame, text="Direction:").grid(row=0, column=0, sticky='w')
+        direction_var = tk.StringVar(value="both")
+        direction_combo = ttk.Combobox(direction_frame, textvariable=direction_var, 
+                                     values=["both", "enter", "exit"], state="readonly", width=10)
+        direction_combo.grid(row=0, column=1, padx=5)
+        
+        # Function to populate source dropdown
+        def populate_sources():
+            try:
+                sources = get_distinct_sources()
+                source_values = ["all"] + sources
+                source_combo['values'] = source_values
+                source_combo.set("all")
+            except Exception as e:
+                print(f"Error populating sources: {e}")
+                source_combo['values'] = ["all"]
+                source_combo.set("all")
+        
+        # Populate sources on window open
+        populate_sources()
+        
         # Resolution selection
         resolution_frame = tk.LabelFrame(control_frame, text="Time Resolution", padx=5, pady=5)
         resolution_frame.pack(fill=tk.X, pady=10)
@@ -290,6 +338,7 @@ def show_selection_window():
                 start_date_entry, start_hour, start_min, start_sec,
                 end_date_entry, end_hour, end_min, end_sec,
                 resolution_var.get(), visual_var.get(),
+                mode_var.get(), source_var.get(), direction_var.get(),
                 result_label, graph_frame
             ),
             bg="#4CAF50", fg="white", padx=10, pady=5
@@ -326,7 +375,7 @@ def show_selection_window():
     # Fetch and display data for the query window
     def fetch_data(start_date_entry, start_hour, start_min, start_sec, 
                    end_date_entry, end_hour, end_min, end_sec,
-                   resolution, visualization,
+                   resolution, visualization, mode_type, source, direction,
                    result_label, graph_frame):
         # Get date and time values
         start_date = start_date_entry.get_date()
@@ -337,8 +386,16 @@ def show_selection_window():
 
         start_timestamp = f"{start_date}T{start_time}"
         end_timestamp = f"{end_date}T{end_time}"
-
-        count = get_total_counts(start_timestamp, end_timestamp)
+        
+        # Apply filters
+        filters = {
+            'mode_type': mode_type if mode_type != 'all' else None,
+            'source': source if source != 'all' else None,
+            'direction': direction if direction != 'both' else None
+        }
+        
+        count = get_total_counts_filtered(start_timestamp, end_timestamp, filters)
+        # count = get_total_counts(start_timestamp, end_timestamp)
 
         result_label.config(text=f"Total Entries: {count}")
 
@@ -367,8 +424,21 @@ def show_selection_window():
         else:  # day
             title = "Daily Entries"
             groupby = "DATE(timestamp)"
+            
+         # Add filter info to title
+        filter_info = []
+        if filters['mode_type']:
+            filter_info.append(f"Mode: {filters['mode_type']}")
+        if filters['source']:
+            filter_info.append(f"Source: {filters['source']}")
+        if filters['direction']:
+            filter_info.append(f"Direction: {filters['direction']}")
+        
+        if filter_info:
+            title += f" ({', '.join(filter_info)})"
 
-        data = get_grouped_counts(start_timestamp, end_timestamp, groupby)
+        data = get_grouped_counts_filtered(start_timestamp, end_timestamp, groupby, filters)
+        # data = get_grouped_counts(start_timestamp, end_timestamp, groupby)
         
         # Convert timestamps to datetime objects for better plotting
         time_periods = []

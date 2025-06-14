@@ -2,6 +2,7 @@ import tkinter as tk
 import cv2
 import threading
 import os
+import datetime
 
 from PIL import Image, ImageTk
 
@@ -21,6 +22,9 @@ class VideoAnalysisFrame:
         
         self.video_path = os.path.join('.', "video", video_path)
         self.video_name = video_path
+        
+        self.start_timestamp = datetime.datetime.now().isoformat()
+        self.end_timestamp = None
         
         
         self.tc = thread_manager.thread_controller
@@ -159,6 +163,9 @@ class VideoAnalysisFrame:
         self.root.after(30, self._update_loop)
 
     def stop(self):
+        # Store end timestamp when video analysis finishes
+        self.end_timestamp = datetime.datetime.now().isoformat()
+        
         # Gather video and tracker parameters
         w, h = VideoProcessor.FRAME_SIZE
         fps  = self.video_fps
@@ -169,6 +176,8 @@ class VideoAnalysisFrame:
             video_width=w,
             video_height=h,
             video_fps=fps,
+            start_timestamp=self.start_timestamp,
+            end_timestamp=self.end_timestamp,
             total_count=self.total_count,
             model_name=config.get_model_name(),
             confidence=config.get_model_conf(),

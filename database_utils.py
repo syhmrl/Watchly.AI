@@ -40,6 +40,8 @@ class Database:
                 video_width          INTEGER NOT NULL,
                 video_height         INTEGER NOT NULL,
                 video_fps            INTEGER NOT NULL,
+                start_timestamp      TEXT,
+                end_timestamp        TEXT,
                 total_count          INTEGER NOT NULL,
                 model_name           TEXT    NOT NULL,
                 confidence           REAL    NOT NULL,
@@ -125,6 +127,7 @@ def insert_to_db(thread_controller):
     
 def insert_video_analysis(
     video_name, video_width, video_height, video_fps,
+    start_timestamp, end_timestamp,
     total_count, model_name, confidence, iou,
     last_tracked_id, tracker_settings
 ):
@@ -138,19 +141,22 @@ def insert_video_analysis(
     cur.execute("""
         INSERT INTO video_analysis (
           video_name, video_width, video_height, video_fps,
+          start_timestamp, end_timestamp,
           total_count, model_name, confidence, iou,
           last_tracked_id, tracker_type, track_high_thresh,
           track_low_thresh, new_track_thresh, track_buffer,
           match_thresh, fuse_score, gmc_method, proximity_thresh,
           appearance_thresh, with_reid, tracker_model
         ) VALUES (
-          ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
+          ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
         )
     """, (
         video_name,
         video_width,
         video_height,
         int(video_fps),
+        start_timestamp,
+        end_timestamp,
         total_count,
         model_name,
         confidence,
@@ -170,6 +176,23 @@ def insert_video_analysis(
         ts.get("model")
     ))
     conn.commit()
+
+# Required database utility functions to add to database_utils.py
+def get_distinct_sources():
+    """
+    Get distinct source values from crossing_events table
+    """
+    db = Database()
+    try:
+        _, cursor = db.get_connection()
+        cursor.execute("SELECT DISTINCT source FROM crossing_events WHERE source IS NOT NULL ORDER BY source")
+        sources = [row[0] for row in cursor.fetchall()]
+        return sources
+    except Exception as e:
+        print(f"Error getting distinct sources: {e}")
+        return []
+    finally:
+        db.close()
 
 def get_total_counts(start_ts, end_ts):
     db = Database()
@@ -223,3 +246,84 @@ def get_total_counts_crowd_mode(start_ts, end_ts, mode):
     count = cursor.fetchone()[0] or 0
 
     return count
+
+def get_total_counts_filtered(start_timestamp, end_timestamp, filters):
+    """
+    Get total count with filters applied
+    """
+    db = Database()
+    try:
+        _, cursor = db.get_connection()
+        
+        # Build WHERE clause
+        where_conditions = ["timestamp BETWEEN ? AND ?"]
+        params = [start_timestamp, end_timestamp]
+        
+        if filters['mode_type']:
+            where_conditions.append("mode_type = ?")
+            params.append(filters['mode_type'])
+        
+        if filters['source']:
+            where_conditions.append("source = ?")
+            params.append(filters['source'])
+        
+        if filters['direction']:
+            where_conditions.append("direction = ?")
+            params.append(filters['direction'])
+        
+        where_clause = " AND ".join(where_conditions)
+        
+        query = f"SELECT COUNT(*) FROM crossing_events WHERE {where_clause}"
+        cursor.execute(query, params)
+        
+        result = cursor.fetchone()
+        return result[0] if result else 0
+    except Exception as e:
+        print(f"Error getting filtered total counts: {e}")
+        return 0
+    finally:
+        db.close()
+
+
+def get_grouped_counts_filtered(start_timestamp, end_timestamp, groupby, filters):
+    """
+    Get grouped counts with filters applied
+    """
+    db = Database()
+    try:
+        _, cursor = db.get_connection()
+        
+        # Build WHERE clause
+        where_conditions = ["timestamp BETWEEN ? AND ?"]
+        params = [start_timestamp, end_timestamp]
+        
+        if filters['mode_type']:
+            where_conditions.append("mode_type = ?")
+            params.append(filters['mode_type'])
+        
+        if filters['source']:
+            where_conditions.append("source = ?")
+            params.append(filters['source'])
+        
+        if filters['direction']:
+            where_conditions.append("direction = ?")
+            params.append(filters['direction'])
+        
+        where_clause = " AND ".join(where_conditions)
+        
+        query = f"""
+            SELECT {groupby} as time_period, COUNT(*) as count 
+            FROM crossing_events 
+            WHERE {where_clause}
+            GROUP BY {groupby} 
+            ORDER BY time_period
+        """
+        
+        cursor.execute(query, params)
+        return cursor.fetchall()
+        
+    except Exception as e:
+        print(f"Error getting filtered grouped counts: {e}")
+        return []
+    finally:
+        db.close()
