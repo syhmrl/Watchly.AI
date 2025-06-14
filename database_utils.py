@@ -194,6 +194,50 @@ def get_distinct_sources():
     finally:
         db.close()
 
+def get_video_names():
+    """
+    Get distinct video_name values from video_analysis table
+    """
+    db = Database()
+    try:
+        _, cursor = db.get_connection()
+        cursor.execute("SELECT DISTINCT video_name FROM video_analysis WHERE video_name IS NOT NULL ORDER BY video_name")
+        videos = [row[0] for row in cursor.fetchall()]
+        return videos
+    except Exception as e:
+        print(f"Error getting video names: {e}")
+        return []
+    finally:
+        db.close()
+        
+def get_video_timestamps(video_name):
+    """
+    Get start and end timestamps for a specific video from video_analysis table
+    Returns tuple of (start_datetime, end_datetime)
+    """
+    db = Database()
+    try:
+        _, cursor = db.get_connection()
+        cursor.execute("""
+            SELECT start_timestamp as start_time, end_timestamp as end_time 
+            FROM video_analysis 
+            WHERE video_name = ?
+        """, (video_name,))
+        
+        result = cursor.fetchone()
+        if result and result[0] and result[1]:
+            from datetime import datetime
+            # Parse the timestamps - adjust format as needed based on your timestamp format
+            start_dt = datetime.fromisoformat(result[0].replace('T', ' ')) if 'T' in result[0] else datetime.strptime(result[0], '%Y-%m-%d %H:%M:%S')
+            end_dt = datetime.fromisoformat(result[1].replace('T', ' ')) if 'T' in result[1] else datetime.strptime(result[1], '%Y-%m-%d %H:%M:%S')
+            return start_dt, end_dt
+        return None, None
+    except Exception as e:
+        print(f"Error getting video timestamps: {e}")
+        return None, None
+    finally:
+        db.close()
+
 def get_total_counts(start_ts, end_ts):
     db = Database()
     _, cursor = db.get_connection()
@@ -246,6 +290,49 @@ def get_total_counts_crowd_mode(start_ts, end_ts, mode):
     count = cursor.fetchone()[0] or 0
 
     return count
+
+def get_individual_timestamps_filtered(start_timestamp, end_timestamp, filters):
+    """
+    Get individual timestamps (not grouped) with filters applied
+    Used for second-level resolution to preserve exact timing
+    """
+    db = Database()
+    try:
+        _, cursor = db.get_connection()
+        
+        # Build WHERE clause
+        where_conditions = ["timestamp BETWEEN ? AND ?"]
+        params = [start_timestamp, end_timestamp]
+        
+        if filters['mode_type']:
+            where_conditions.append("mode_type = ?")
+            params.append(filters['mode_type'])
+        
+        if filters['source']:
+            where_conditions.append("source = ?")
+            params.append(filters['source'])
+        
+        if filters['direction']:
+            where_conditions.append("direction = ?")
+            params.append(filters['direction'])
+        
+        where_clause = " AND ".join(where_conditions)
+        
+        query = f"""
+            SELECT timestamp
+            FROM crossing_events 
+            WHERE {where_clause}
+            ORDER BY timestamp
+        """
+        
+        cursor.execute(query, params)
+        return cursor.fetchall()
+        
+    except Exception as e:
+        print(f"Error getting individual timestamps: {e}")
+        return []
+    finally:
+        db.close()
 
 def get_total_counts_filtered(start_timestamp, end_timestamp, filters):
     """

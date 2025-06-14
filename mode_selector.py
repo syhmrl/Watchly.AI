@@ -35,7 +35,7 @@ def show_selection_window():
     
     # Create the main window
     sel = tk.Tk()
-    sel.title("People Counter - Select Counting Mode")
+    sel.title("Crowd Monitoring System and Analysis")
     sel.geometry("600x500")
     
     # Add padding and styling
@@ -205,7 +205,7 @@ def show_selection_window():
     # Create and show the query window
     def open_query_window():
         query_win = tk.Toplevel(sel)
-        query_win.title("Query People Entering")
+        query_win.title("Statistic Dashboard")
         query_win.geometry("1000x800")
         query_win.grab_set()  # Make window modal
         
@@ -294,18 +294,81 @@ def show_selection_window():
                                      values=["both", "enter", "exit"], state="readonly", width=10)
         direction_combo.grid(row=0, column=1, padx=5)
         
-        # Function to populate source dropdown
+        # Function to populate source dropdown based on mode
         def populate_sources():
             try:
-                sources = get_distinct_sources()
-                source_values = ["all"] + sources
+                current_mode = mode_var.get()
+                if current_mode == "video":
+                    sources = get_video_names()
+                    source_values = ["all"] + sources
+                else:
+                    sources = get_distinct_sources()
+                    source_values = ["all"] + sources
                 source_combo['values'] = source_values
                 source_combo.set("all")
             except Exception as e:
                 print(f"Error populating sources: {e}")
                 source_combo['values'] = ["all"]
                 source_combo.set("all")
+                
+        # Function to handle mode change
+        def on_mode_change(*args):
+            populate_sources()
+            # Reset to default datetime when changing mode
+            if mode_var.get() != "video":
+                reset_to_default_datetime()
+                
+        # Function to handle source change when in video mode
+        def on_source_change(*args):
+            if mode_var.get() == "video" and source_var.get() != "all":
+                set_video_datetime(source_var.get())
         
+        # Function to reset datetime to default (today)
+        def reset_to_default_datetime():
+            today = date.today()
+            start_date_entry.set_date(today)
+            end_date_entry.set_date(today)
+            start_hour.delete(0, tk.END)
+            start_hour.insert(0, "00")
+            start_min.delete(0, tk.END)
+            start_min.insert(0, "00")
+            start_sec.delete(0, tk.END)
+            start_sec.insert(0, "00")
+            end_hour.delete(0, tk.END)
+            end_hour.insert(0, "23")
+            end_min.delete(0, tk.END)
+            end_min.insert(0, "59")
+            end_sec.delete(0, tk.END)
+            end_sec.insert(0, "59")
+            
+         # Function to set datetime based on video timestamps
+        def set_video_datetime(video_name):
+            try:
+                start_dt, end_dt = get_video_timestamps(video_name)
+                if start_dt and end_dt:
+                    # Set start datetime
+                    start_date_entry.set_date(start_dt.date())
+                    start_hour.delete(0, tk.END)
+                    start_hour.insert(0, f"{start_dt.hour:02d}")
+                    start_min.delete(0, tk.END)
+                    start_min.insert(0, f"{start_dt.minute:02d}")
+                    start_sec.delete(0, tk.END)
+                    start_sec.insert(0, f"{start_dt.second:02d}")
+                    
+                    # Set end datetime
+                    end_date_entry.set_date(end_dt.date())
+                    end_hour.delete(0, tk.END)
+                    end_hour.insert(0, f"{end_dt.hour:02d}")
+                    end_min.delete(0, tk.END)
+                    end_min.insert(0, f"{end_dt.minute:02d}")
+                    end_sec.delete(0, tk.END)
+                    end_sec.insert(0, f"{end_dt.second:02d}")
+            except Exception as e:
+                print(f"Error setting video datetime: {e}")
+                
+        # Bind events to dropdowns
+        mode_var.trace_add('write', on_mode_change)
+        source_var.trace_add('write', on_source_change)
         # Populate sources on window open
         populate_sources()
         
@@ -414,7 +477,8 @@ def show_selection_window():
         
         if resolution == "second":
             title = "Entries by Second"
-            groupby = "strftime('%Y-%m-%d %H:%M:%S', timestamp)"
+            groupby = "timestamp"
+            # groupby = "strftime('%Y-%m-%d %H:%M:%S', timestamp)"
         elif resolution == "minute":
             title = "Entries by Minute"
             groupby = "strftime('%Y-%m-%d %H:%M', timestamp)"
@@ -436,29 +500,77 @@ def show_selection_window():
         
         if filter_info:
             title += f" ({', '.join(filter_info)})"
+            
+        if resolution == "second":
+            # For second resolution, get individual timestamps and process them
+            data = get_individual_timestamps_filtered(start_timestamp, end_timestamp, filters)
+        else:
+            data = get_grouped_counts_filtered(start_timestamp, end_timestamp, groupby, filters)
+        
 
         data = get_grouped_counts_filtered(start_timestamp, end_timestamp, groupby, filters)
-        # data = get_grouped_counts(start_timestamp, end_timestamp, groupby)
         
         # Convert timestamps to datetime objects for better plotting
         time_periods = []
         counts = []
         
-        for row in data:
-            try:
-                if resolution == "day":
-                    dt = datetime.strptime(row[0], "%Y-%m-%d")
-                elif resolution == "hour":
-                    dt = datetime.strptime(row[0], "%Y-%m-%d %H:00:00")
-                elif resolution == "minute":
-                    dt = datetime.strptime(row[0], "%Y-%m-%d %H:%M")
-                else:  # second
-                    dt = datetime.strptime(row[0], "%Y-%m-%d %H:%M:%S")
-            except ValueError as e:
-                print(f"Error parsing datetime '{row[0]}': {e}")
-                continue
-            time_periods.append(dt)
-            counts.append(row[1])
+        # for row in data:
+        #     try:
+        #         if resolution == "day":
+        #             dt = datetime.strptime(row[0], "%Y-%m-%d")
+        #         elif resolution == "hour":
+        #             dt = datetime.strptime(row[0], "%Y-%m-%d %H:00:00")
+        #         elif resolution == "minute":
+        #             dt = datetime.strptime(row[0], "%Y-%m-%d %H:%M")
+        #         else:  # second
+        #             dt = datetime.strptime(row[0], "%Y-%m-%d %H:%M:%S")
+        #     except ValueError as e:
+        #         print(f"Error parsing datetime '{row[0]}': {e}")
+        #         continue
+        #     time_periods.append(dt)
+        #     counts.append(row[1])
+        
+        if resolution == "second":
+            # For second resolution, process individual timestamps
+            from collections import defaultdict
+            second_counts = defaultdict(int)
+            
+            # Group by second (truncating milliseconds)
+            for row in data:
+                try:
+                    # Parse the full timestamp
+                    if 'T' in row[0]:
+                        dt = datetime.fromisoformat(row[0])
+                    else:
+                        dt = datetime.strptime(row[0], '%Y-%m-%d %H:%M:%S.%f')
+                    
+                    # Truncate to second precision
+                    dt_second = dt.replace(microsecond=0)
+                    second_counts[dt_second] += 1
+                except ValueError as e:
+                    print(f"Error parsing timestamp '{row[0]}': {e}")
+                    continue
+            
+            # Convert to sorted lists
+            sorted_times = sorted(second_counts.keys())
+            time_periods = sorted_times
+            counts = [second_counts[t] for t in sorted_times]
+            
+        else:
+            # For other resolutions, use the grouped data as before
+            for row in data:
+                try:
+                    if resolution == "day":
+                        dt = datetime.strptime(row[0], "%Y-%m-%d")
+                    elif resolution == "hour":
+                        dt = datetime.strptime(row[0], "%Y-%m-%d %H:00:00")
+                    elif resolution == "minute":
+                        dt = datetime.strptime(row[0], "%Y-%m-%d %H:%M")
+                except ValueError as e:
+                    print(f"Error parsing datetime '{row[0]}': {e}")
+                    continue
+                time_periods.append(dt)
+                counts.append(row[1])
         
         # Create figure
         fig, ax = plt.subplots(figsize=(10, 6))
@@ -555,7 +667,7 @@ def show_selection_window():
 
     query_button = tk.Button(
         button_frame, 
-        text="Query Past Data", 
+        text="Statistic Dashboard", 
         command=open_query_window,
         width=15
     )
