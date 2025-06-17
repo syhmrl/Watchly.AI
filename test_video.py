@@ -20,7 +20,7 @@ VIDEO_OUT_PATH = os.path.join('.', 'video', f'predicted_{VIDEO_NAME.split(".")[0
 VIDEO_SOURCE = VIDEO_PATH
 
 # Model used
-MODEL_NAME = "yolo11m.pt"
+MODEL_NAME = "headv3.pt"
 CONFIDENCE_LEVEL = 0.25
 IOU = 0.5
 TRACKER = "bytetrack.yaml"
@@ -44,7 +44,7 @@ fps_avg_len = 200
 
 # Recording settings
 ENABLE_RAW_RECORDING = False
-ENABLE_PREDICTED_RECORDING = False
+ENABLE_PREDICTED_RECORDING = True
 
 SKIP_FRAME_BY_KEYPRESSED = 1 # 0 is yes 1 is play video as usual
 
@@ -109,7 +109,7 @@ def video_processing_v1():
             frame,
             verbose=False,
             classes=[0],  # Track people only
-            conf=0.5,
+            # conf=0.5,
             persist=True,
             tracker="custom_tracker.yaml"
         )
@@ -414,7 +414,7 @@ def video_processing_crowd():
             
         # Write processed frame to video
         if ENABLE_PREDICTED_RECORDING and processed_out is None:
-            recording_fps = 15.0
+            recording_fps = 30.0
             os.makedirs("video/testing", exist_ok=True)
             processed_filename = f"video/testing/test_{source_name}_crowd_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
             fourcc = cv2.VideoWriter_fourcc(*'mp4v')
@@ -426,7 +426,7 @@ def video_processing_crowd():
                 processed_out.write(visualization_frame)
 
         cv2.imshow(window_name, visualization_frame)
-        key = cv2.waitKey(1) & 0xFF
+        key = cv2.waitKey(SKIP_FRAME_BY_KEYPRESSED) & 0xFF
 
         # Handle window close or ESC key
         if key == 27 or cv2.getWindowProperty(window_name, cv2.WND_PROP_VISIBLE) < 1:
@@ -443,7 +443,8 @@ def video_processing_crowd():
             cv2.destroyWindow(window_name)  # Destroy specific window instead of all
     except cv2.error:
         pass  # Window was already closed by user
-
+    
+    print(f"Video: {VIDEO_NAME}")
     print(f"Crowd count: {crowd_count}")
     print(f"last tracked id: {track_id}")
     print(f"model: {MODEL_NAME}")

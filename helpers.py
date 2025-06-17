@@ -1,17 +1,17 @@
 # helpers.py
-import cv2, time, numpy as np, random
+import time, numpy as np
 from ultralytics import YOLO
 import torch
-from datetime import datetime
 
 def load_model(model_name):
     """Load YOLO model on GPU if available, else CPU."""
     model = YOLO(model_name)
     if torch.cuda.is_available():
+        print("Using GPU")
         return model.to('cuda')
     return model
 
-def calculate_fps(frame_rate_buffer, t_start, fps_avg_len):
+def calculate_fps(frame_rate_buffer, t_start, fps_avg_len = 200):
     """Update fps buffer and return average FPS."""
     t_stop = time.perf_counter()
     fps = 1 / (t_stop - t_start)
@@ -20,12 +20,10 @@ def calculate_fps(frame_rate_buffer, t_start, fps_avg_len):
         frame_rate_buffer.pop(0)
     return np.mean(frame_rate_buffer)
 
-def cleanup_stale(last_seen, frame_idx, max_missing, detection_count):
-    """Remove IDs not seen in the last max_missing frames."""
+def cleanup_stale(last_seen, frame_idx, *dicts_to_clean):
+    max_missing = 400
     for tid in list(last_seen):
-        if frame_idx - last_seen.get(tid, frame_idx) > max_missing:
-            if tid in last_seen:
-                del last_seen[tid]
-            if tid in detection_count:
-                del detection_count[tid]
-            # Note: We don't remove from tracked_ids to avoid recounting
+        if frame_idx - last_seen[tid] > max_missing:
+            del last_seen[tid]
+            for d in dicts_to_clean:
+                d.pop(tid, None)

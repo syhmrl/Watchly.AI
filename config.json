@@ -1,0 +1,111 @@
+{
+  "CAM_USERNAME": "admin",
+  "CAM_PASSWORD": "Abcdefghi1",
+  "CAM_IP": [
+    "192.168.1.64",
+    "192.168.1.65"
+  ],
+  "CAMERA_SOURCES": [
+    0
+  ],
+  "video_parameters": {
+    "width": 1280,
+    "height": 720
+  },
+  "DATABASE_PATH": "watchly_ai.db",
+  "model_default_setting": {
+    "model": "yolo11m.pt",
+    "conf": 0.4,
+    "iou": 0.5
+  },
+  "tracker_default_setting": {
+    "tracker_type": "botsort",
+    "track_high_thresh": 0.3,
+    "track_low_thresh": 0.2,
+    "new_track_thresh": 0.3,
+    "track_buffer": 1000,
+    "match_thresh": 0.7,
+    "fuse_score": "True",
+    "gmc_method": "sparseOptFlow",
+    "proximity_thresh": 0.5,
+    "appearance_thresh": 0.4,
+    "with_reid": "True",
+    "model": "auto"
+  },
+  "roi_values": {
+    "default": {
+      "width": 1280,
+      "height": 720,
+      "value": [
+        [
+          3,
+          70
+        ],
+        [
+          1279,
+          91
+        ],
+        [
+          1277,
+          715
+        ],
+        [
+          8,
+          716
+        ]
+      ]
+    },
+    "frame_2": {
+      "width": 1280,
+      "height": 720,
+      "value": [
+        [
+          308,
+          219
+        ],
+        [
+          1029,
+          213
+        ],
+        [
+          1076,
+          717
+        ],
+        [
+          282,
+          716
+        ],
+        [
+          266,
+          448
+        ]
+      ]
+    },
+    "frame_3": {
+      "width": 1280,
+      "height": 720,
+      "value": [
+        [
+          500,
+          268
+        ],
+        [
+          900,
+          263
+        ],
+        [
+          903,
+          719
+        ],
+        [
+          465,
+          719
+        ],
+        [
+          500,
+          631
+        ]
+      ]
+    }
+  }
+}
