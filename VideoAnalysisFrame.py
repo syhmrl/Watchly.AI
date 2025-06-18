@@ -16,12 +16,19 @@ from database_utils import insert_video_analysis
 from helpers import *
 
 class VideoAnalysisFrame:
-    def __init__(self, root, video_path, on_close=None):
+    def __init__(self, root, video_path, on_close=None, ground_truth_count=None, run_index=1):
         self.on_close = on_close
         self.root = root
         
         self.video_path = os.path.join('.', "video", video_path)
         self.video_name = video_path
+        
+        # Performance tracking variables
+        self.ground_truth_count = ground_truth_count  # Expected count for precision/recall
+        self.run_index = run_index
+        self.processing_start_time = None
+        self.total_processing_time_ms = 0
+        self.frame_count = 0
         
         self.start_timestamp = datetime.datetime.now().isoformat()
         self.end_timestamp = None
@@ -87,6 +94,9 @@ class VideoAnalysisFrame:
     def _update_loop(self):        
         if not self.running:
             return
+        
+        # Start timing for this frame
+        frame_start_time = time.time()
 
         ret, frame = self.cap.read()
         if not ret:
@@ -158,6 +168,11 @@ class VideoAnalysisFrame:
         imgtk = ImageTk.PhotoImage(image=img)
         self.video_label.imgtk = imgtk
         self.video_label.config(image=imgtk)
+        
+        # Calculate processing time for this frame
+        frame_end_time = time.time()
+        frame_processing_time_ms = (frame_end_time - frame_start_time) * 1000
+        self.total_processing_time_ms += frame_processing_time_ms
 
         # Schedule next frame update
         self.root.after(30, self._update_loop)
@@ -165,6 +180,18 @@ class VideoAnalysisFrame:
     def stop(self):
         # Store end timestamp when video analysis finishes
         self.end_timestamp = datetime.datetime.now().isoformat()
+        
+        # Calculate performance metrics
+        precision, recall, f1_score = self._calculate_performance_metrics(
+            self.total_count, 
+            self.ground_truth_count
+        )
+        
+        # Calculate average processing time per frame
+        avg_processing_time_ms = (
+            self.total_processing_time_ms / self.frame_idx 
+            if self.frame_idx > 0 else 0
+        )
         
         # Gather video and tracker parameters
         w, h = VideoProcessor.FRAME_SIZE
@@ -183,7 +210,14 @@ class VideoAnalysisFrame:
             confidence=config.get_model_conf(),
             iou=config.get_model_iou(),
             last_tracked_id=self.last_tracked_id,
-            tracker_settings=ts
+            tracker_settings=ts,
+            run_index=self.run_index,
+            ground_truth_count=self.ground_truth_count,
+            precision=precision,
+            recall=recall,
+            f1_score=f1_score,
+            processing_time_ms=avg_processing_time_ms,
+            frame_count=self.frame_count
         )
         
         # Signal threads to stop
@@ -201,6 +235,33 @@ class VideoAnalysisFrame:
 
         if callable(self.on_close):
             self.on_close()
+            
+    def _calculate_performance_metrics(self, predicted_count, ground_truth_count):
+        """
+        Calculate precision, recall, and F1-score based on counting accuracy.
+        
+        For object counting, we can treat it as:
+        - True Positives (TP): min(predicted, ground_truth)
+        - False Positives (FP): max(0, predicted - ground_truth)
+        - False Negatives (FN): max(0, ground_truth - predicted)
+        """
+        if ground_truth_count is None or ground_truth_count == 0:
+            return None, None, None
+        
+        tp = min(predicted_count, ground_truth_count)
+        fp = max(0, predicted_count - ground_truth_count)
+        fn = max(0, ground_truth_count - predicted_count)
+        
+        # Calculate precision: TP / (TP + FP)
+        precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+        
+        # Calculate recall: TP / (TP + FN)
+        recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+        
+        # Calculate F1-score: 2 * (precision * recall) / (precision + recall)
+        f1_score = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0.0
+        
+        return precision, recall, f1_score
 
     def _toggle_visual(self):
         self.enable_visual = not self.enable_visual

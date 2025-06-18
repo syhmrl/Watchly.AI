@@ -893,6 +893,66 @@ def open_model_setting(sel):
         # close and back to menu
         on_close()
         
+# def open_video_analysis(sel):
+#     from VideoAnalysisFrame import VideoAnalysisFrame
+#     # Hide main menu
+#     sel.withdraw()
+
+#     def on_close():
+#         # When this window closes, re-show menu
+#         try:
+#             sel.deiconify()
+#         except tk.TclError:
+#             # if menu was destroyed, recreate
+#             show_selection_window()
+#         va_win.destroy()
+
+#     # Create Video Analysis window
+#     va_win = tk.Toplevel(sel)
+#     va_win.title("Video Analysis")
+#     va_win.geometry("300x200")
+#     va_win.protocol("WM_DELETE_WINDOW", on_close)
+    
+#     # --- Video Selection ---
+#     tk.Label(va_win, text="Select Video:").pack(anchor="w", pady=(10,0), padx=10)
+#     video_files = [f for f in os.listdir("video") if f.lower().endswith((".mp4", ".avi"))]
+#     video_var = tk.StringVar(value=video_files[0] if video_files else "")
+#     ttk.OptionMenu(va_win, video_var, video_var.get(), *video_files).pack(fill="x", padx=10)
+    
+    
+    
+#     # Buttons: Start analysis & Reset defaults
+#     btn_frame = tk.Frame(va_win)
+#     btn_frame.pack(fill="x", pady=10, padx=10)
+#     tk.Button(btn_frame, text="Start", width=15, command=lambda: on_submit()).pack(side=tk.RIGHT, padx=5)
+    
+#     def on_submit():
+#         # Hide selection window and start threads
+#         va_win.destroy()  # Hide instead of destroy
+ 
+#         # Start the threads
+#         # thread_controller.reset()
+#         start_threads()
+        
+#         # Define callback for when counter window closes
+#         def on_va_close():
+#             # Stop all threads
+#             thread_controller.stop_event.set()
+#             # join threads
+#             for t in thread_controller.threads:
+#                 if t.is_alive():
+#                     t.join(timeout=1.0)
+#             # Re‐show the selection window
+#             try: 
+#                 sel.deiconify()
+#             except tk.TclError: show_selection_window()
+        
+#         # Create a new window for the detector UI
+#         video_analysis = tk.Toplevel(sel)
+#         video_analysis.title("Video Analysis")
+#         # Pass either source_index=0 or loop for multiple sources
+#         app = VideoAnalysisFrame(video_analysis, video_path=video_var.get(), on_close=on_va_close)
+    
 def open_video_analysis(sel):
     from VideoAnalysisFrame import VideoAnalysisFrame
     # Hide main menu
@@ -910,23 +970,142 @@ def open_video_analysis(sel):
     # Create Video Analysis window
     va_win = tk.Toplevel(sel)
     va_win.title("Video Analysis")
-    va_win.geometry("300x200")
+    va_win.geometry("350x280")
     va_win.protocol("WM_DELETE_WINDOW", on_close)
     
     # --- Video Selection ---
-    tk.Label(va_win, text="Select Video:").pack(anchor="w", pady=(10,0), padx=10)
+    tk.Label(va_win, text="Select Video:", font=("Arial", 10, "bold")).pack(anchor="w", pady=(15,5), padx=15)
     video_files = [f for f in os.listdir("video") if f.lower().endswith((".mp4", ".avi"))]
     video_var = tk.StringVar(value=video_files[0] if video_files else "")
-    ttk.OptionMenu(va_win, video_var, video_var.get(), *video_files).pack(fill="x", padx=10)
+    video_menu = ttk.OptionMenu(va_win, video_var, video_var.get(), *video_files)
+    video_menu.pack(fill="x", padx=15, pady=(0,10))
     
-    # Buttons: Start analysis & Reset defaults
+    # --- Ground Truth Count Input ---
+    ground_truth_frame = tk.Frame(va_win)
+    ground_truth_frame.pack(fill="x", padx=15, pady=(0,10))
+    
+    tk.Label(ground_truth_frame, text="Ground Truth Count:", font=("Arial", 10, "bold")).pack(anchor="w")
+    
+    # Create frame for input and info
+    input_frame = tk.Frame(ground_truth_frame)
+    input_frame.pack(fill="x", pady=(5,0))
+    
+    ground_truth_var = tk.StringVar(value="")
+    ground_truth_entry = tk.Entry(input_frame, textvariable=ground_truth_var, width=10)
+    ground_truth_entry.pack(side="left")
+    
+    # Info label
+    info_label = tk.Label(input_frame, text="(Expected number of people/objects)", 
+                         font=("Arial", 8), fg="gray")
+    info_label.pack(side="left", padx=(10,0))
+    
+    # Optional checkbox
+    optional_frame = tk.Frame(ground_truth_frame)
+    optional_frame.pack(fill="x", pady=(5,0))
+    
+    use_ground_truth_var = tk.BooleanVar(value=False)
+    optional_check = tk.Checkbutton(optional_frame, 
+                                text="Enable performance metrics calculation", 
+                                variable=use_ground_truth_var,
+                                command=lambda: toggle_ground_truth_input()
+                                )
+    optional_check.pack(anchor="w")
+    
+    def toggle_ground_truth_input():
+        if use_ground_truth_var.get():
+            ground_truth_entry.config(state="normal")
+            info_label.config(fg="black")
+        else:
+            ground_truth_entry.config(state="disabled")
+            info_label.config(fg="gray")
+            ground_truth_var.set("")
+    
+    # Initially disable ground truth input
+    toggle_ground_truth_input()
+    
+    # --- Run Index Information ---
+    run_info_frame = tk.Frame(va_win)
+    run_info_frame.pack(fill="x", padx=15, pady=(0,15))
+    
+    tk.Label(run_info_frame, text="Run Information:", font=("Arial", 10, "bold")).pack(anchor="w")
+    
+    run_index_label = tk.Label(run_info_frame, text="", font=("Arial", 9), fg="blue")
+    run_index_label.pack(anchor="w", pady=(2,0))
+    
+    def update_run_info(*args):
+        selected_video = video_var.get()
+        if selected_video:
+            try:
+                from database_utils import get_next_run_index, get_analysis_comparison
+                next_run = get_next_run_index(selected_video)
+                existing_runs = get_analysis_comparison(selected_video)
+                
+                if existing_runs:
+                    run_info_text = f"This will be Run #{next_run} (Previous runs: {len(existing_runs)})"
+                else:
+                    run_info_text = f"This will be Run #{next_run} (First analysis of this video)"
+                
+                run_index_label.config(text=run_info_text)
+            except Exception as e:
+                run_index_label.config(text=f"Run index: {1} (Could not check previous runs)")
+        else:
+            run_index_label.config(text="")
+    
+    # Update run info when video selection changes
+    video_var.trace_add("write", update_run_info)
+    update_run_info()  # Initial update
+    
+    # Buttons: Start analysis & Cancel
     btn_frame = tk.Frame(va_win)
-    btn_frame.pack(fill="x", pady=10, padx=10)
-    tk.Button(btn_frame, text="Start", width=15, command=lambda: on_submit()).pack(side=tk.RIGHT, padx=5)
+    btn_frame.pack(fill="x", pady=15, padx=15)
+    
+    tk.Button(btn_frame, text="Cancel", width=12, command=on_close).pack(side=tk.LEFT)
+    tk.Button(btn_frame, text="Start Analysis", width=15, command=lambda: on_submit()).pack(side=tk.RIGHT)
+    
+    def validate_input():
+        """Validate user input before starting analysis"""
+        if not video_var.get():
+            tk.messagebox.showerror("Error", "Please select a video file.")
+            return False
+        
+        if use_ground_truth_var.get():
+            try:
+                ground_truth_value = ground_truth_var.get().strip()
+                if ground_truth_value:
+                    ground_truth_count = int(ground_truth_value)
+                    if ground_truth_count < 0:
+                        tk.messagebox.showerror("Error", "Ground truth count must be a positive number.")
+                        return False
+                else:
+                    tk.messagebox.showerror("Error", "Please enter a ground truth count or disable performance metrics.")
+                    return False
+            except ValueError:
+                tk.messagebox.showerror("Error", "Ground truth count must be a valid number.")
+                return False
+        
+        return True
     
     def on_submit():
+        if not validate_input():
+            return
+        
+        # Get ground truth count
+        ground_truth_count = None
+        if use_ground_truth_var.get() and ground_truth_var.get().strip():
+            try:
+                ground_truth_count = int(ground_truth_var.get().strip())
+            except ValueError:
+                ground_truth_count = None
+        
+        # Get run index
+        try:
+            from database_utils import get_next_run_index
+            run_index = get_next_run_index(video_var.get())
+        except:
+            run_index = 1
+        
         # Hide selection window and start threads
-        va_win.destroy()  # Hide instead of destroy
+        va_win.destroy()
  
         # Start the threads
         # thread_controller.reset()
@@ -943,11 +1122,18 @@ def open_video_analysis(sel):
             # Re‐show the selection window
             try: 
                 sel.deiconify()
-            except tk.TclError: show_selection_window()
+            except tk.TclError: 
+                show_selection_window()
         
         # Create a new window for the detector UI
         video_analysis = tk.Toplevel(sel)
-        video_analysis.title("Video Analysis")
-        # Pass either source_index=0 or loop for multiple sources
-        app = VideoAnalysisFrame(video_analysis, video_path=video_var.get(), on_close=on_va_close)
-    
+        video_analysis.title(f"Video Analysis - {video_var.get()} (Run #{run_index})")
+        
+        # Pass video path, ground truth count, and run index
+        app = VideoAnalysisFrame(
+            video_analysis, 
+            video_path=video_var.get(), 
+            on_close=on_va_close,
+            ground_truth_count=ground_truth_count,
+            run_index=run_index
+        )
