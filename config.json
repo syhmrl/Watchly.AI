@@ -14,7 +14,7 @@
   },
   "DATABASE_PATH": "watchly_ai.db",
   "model_default_setting": {
-    "model": "yolo11m.pt",
+    "model": "headv1.pt",
     "conf": 0.4,
     "iou": 0.5
   },
@@ -104,6 +104,32 @@
         [
           500,
           631
+        ]
+      ]
+    },
+    "niga": {
+      "width": 1280,
+      "height": 720,
+      "value": [
+        [
+          410,
+          143
+        ],
+        [
+          1146,
+          164
+        ],
+        [
+          1041,
+          491
+        ],
+        [
+          406,
+          520
+        ],
+        [
+          354,
+          349
         ]
       ]
     }
