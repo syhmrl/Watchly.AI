@@ -1,6 +1,7 @@
 import sqlite3
 import queue
 import time
+import datetime
 from config import get_database_path
 
 class Database:
@@ -58,7 +59,15 @@ class Database:
                 proximity_thresh     REAL,
                 appearance_thresh    REAL,
                 with_reid            INTEGER,
-                tracker_model        TEXT
+                tracker_model        TEXT,
+                run_index            INTEGER DEFAULT 1,
+                ground_truth_count   INTEGER,
+                precision            REAL,
+                recall               REAL,
+                f1_score             REAL,
+                processing_time_ms   REAL,
+                frame_count          INTEGER,
+                analysis_timestamp   TEXT
             );
         ''')
 
@@ -129,7 +138,9 @@ def insert_video_analysis(
     video_name, video_width, video_height, video_fps,
     start_timestamp, end_timestamp,
     total_count, model_name, confidence, iou,
-    last_tracked_id, tracker_settings
+    last_tracked_id, tracker_settings,
+    run_index=1, ground_truth_count=None, precision=None, recall=None, f1_score=None,
+    processing_time_ms=None, frame_count=None
 ):
     """
     Insert a single summary row into video_analysis.
@@ -138,6 +149,10 @@ def insert_video_analysis(
     db = Database()
     conn, cur = db.get_connection()
     ts = tracker_settings
+    
+    # Generate analysis timestamp
+    analysis_timestamp = datetime.datetime.now().isoformat()
+    
     cur.execute("""
         INSERT INTO video_analysis (
           video_name, video_width, video_height, video_fps,
@@ -146,9 +161,11 @@ def insert_video_analysis(
           last_tracked_id, tracker_type, track_high_thresh,
           track_low_thresh, new_track_thresh, track_buffer,
           match_thresh, fuse_score, gmc_method, proximity_thresh,
-          appearance_thresh, with_reid, tracker_model
+          appearance_thresh, with_reid, tracker_model,
+          run_index, ground_truth_count, precision, recall, f1_score,
+          processing_time_ms, frame_count, analysis_timestamp
         ) VALUES (
-          ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
+          ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
         )
     """, (
         video_name,
@@ -173,9 +190,69 @@ def insert_video_analysis(
         ts.get("proximity_thresh"),
         ts.get("appearance_thresh"),
         1 if ts.get("with_reid") else 0,
-        ts.get("model")
+        ts.get("model"),
+        run_index,
+        ground_truth_count,
+        precision,
+        recall,
+        f1_score,
+        processing_time_ms,
+        frame_count,
+        analysis_timestamp
     ))
     conn.commit()
+
+def get_analysis_comparison(video_name):
+    """
+    Get all analysis runs for a specific video for comparison
+    """
+    db = Database()
+    try:
+        _, cursor = db.get_connection()
+        cursor.execute("""
+            SELECT 
+                run_index, total_count, ground_truth_count, precision, recall, f1_score,
+                processing_time_ms, frame_count, analysis_timestamp,
+                model_name, confidence, iou, tracker_type
+            FROM video_analysis 
+            WHERE video_name = ? 
+            ORDER BY run_index, analysis_timestamp
+        """, (video_name,))
+        
+        results = cursor.fetchall()
+        columns = [
+            'run_index', 'total_count', 'ground_truth_count', 'precision', 'recall', 'f1_score',
+            'processing_time_ms', 'frame_count', 'analysis_timestamp',
+            'model_name', 'confidence', 'iou', 'tracker_type'
+        ]
+        
+        return [dict(zip(columns, row)) for row in results]
+    except Exception as e:
+        print(f"Error getting analysis comparison: {e}")
+        return []
+    finally:
+        db.close()
+
+def get_next_run_index(video_name):
+    """
+    Get the next run index for a video
+    """
+    db = Database()
+    try:
+        _, cursor = db.get_connection()
+        cursor.execute("""
+            SELECT COALESCE(MAX(run_index), 0) + 1 
+            FROM video_analysis 
+            WHERE video_name = ?
+        """, (video_name,))
+        
+        result = cursor.fetchone()
+        return result[0] if result else 1
+    except Exception as e:
+        print(f"Error getting next run index: {e}")
+        return 1
+    finally:
+        db.close()
 
 # Required database utility functions to add to database_utils.py
 def get_distinct_sources():
@@ -412,5 +489,22 @@ def get_grouped_counts_filtered(start_timestamp, end_timestamp, groupby, filters
     except Exception as e:
         print(f"Error getting filtered grouped counts: {e}")
         return []
+    finally:
+        db.close()
+        
+if __name__ == "__main__":
+    db = Database()
+    
+    try:
+        conn, cursor = db.get_connection()
+        
+        query = """
+            ALTER TABLE crossing_events RENAME TO counting_events
+        """
+        
+        cursor.execute(query)
+        conn.commit()
+    except Exception as e:
+        print(f"Error: {e}")
     finally:
         db.close()

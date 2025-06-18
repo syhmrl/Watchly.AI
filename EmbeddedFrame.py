@@ -4,11 +4,14 @@ import threading
 import time
 
 from PIL import Image, ImageTk
+from concurrent.futures import ThreadPoolExecutor
 
 # Your existing modules
 import config
 import thread_manager
 import VideoProcessor
+from PersistentReID import PersistentReID
+
 
 from helpers import *
 
@@ -22,6 +25,19 @@ class EmbeddedFrame:
         self.tc = thread_manager.thread_controller
 
         self.zc = self.tc.zoom_controllers[source_index]
+        
+        # Initialize optimized ReID system
+        self.reid_system = PersistentReID(
+            feature_dim=256,  # Reduced for speed
+            max_gallery_size=30,  # Reduced for speed
+            similarity_threshold=0.8,  # Adjusted for better discrimination
+            min_features_per_person=4,
+            max_features_per_person=4
+        )
+        
+        # Load existing gallery if available
+        gallery_path = f"person_gallery_{source_index}.pkl"
+        self.reid_system.load_gallery(gallery_path)
         
         #ROI State
         self.current_roi_name = None
@@ -39,12 +55,22 @@ class EmbeddedFrame:
         
         # Counting states
         self.temp_count = set()
-        self.counted_ids     = set()    # track_id → has contributed to total
+        self.counted_person_ids      = set()    # track_id → has contributed to total
         self.last_seen       = {}    # track_id -> last frame_idx seen
-        self.detection_count = {}    # track_id -> consecutive frames seen
+        self.detection_count = {}
+        self.person_detection_count  = {}    # track_id -> consecutive frames seen
+        self.person_last_seen = {}       # person_id -> last frame_idx seen
         self.frame_idx       = 0
 
-        self.min_detection = 30
+        self.min_detection = 20
+        
+        # Performance optimization
+        self.process_every_nth_frame = 2  # Process ReID every 2nd frame
+        self.reid_frame_counter = 0
+        
+        # Threading for ReID processing
+        self.reid_executor = ThreadPoolExecutor(max_workers=2)
+        self.pending_reid_tasks = {}
 
         # Build UI
         self._build_ui()
@@ -107,7 +133,53 @@ class EmbeddedFrame:
                 )
                 t.start()
                 self.tc.threads.append(t)
-                
+     
+    def _extract_person_crop(self, frame, box_coords):
+        """Extract person crop with minimal padding"""
+        x1, y1, x2, y2 = map(int, box_coords)
+        h, w = frame.shape[:2]
+        
+        # Minimal padding for speed
+        padding = 5
+        x1 = max(0, x1 - padding)
+        y1 = max(0, y1 - padding)
+        x2 = min(w, x2 + padding)
+        y2 = min(h, y2 + padding)
+        
+        if x2 <= x1 or y2 <= y1:
+            return None
+        
+        person_crop = frame[y1:y2, x1:x2]
+        return person_crop
+    
+    def _process_reid_async(self, track_id, person_crop, frame_idx):
+        """Process ReID asynchronously"""
+        if track_id in self.pending_reid_tasks:
+            return  # Already processing this track
+        
+        future = self.reid_executor.submit(
+            self.reid_system.process_detection, 
+            track_id, person_crop, frame_idx
+        )
+        self.pending_reid_tasks[track_id] = future
+    
+    def _get_reid_results(self, track_id):
+        """Get ReID results if available"""
+        if track_id not in self.pending_reid_tasks:
+            return None
+        
+        future = self.pending_reid_tasks[track_id]
+        if future.done():
+            try:
+                result = future.result()
+                del self.pending_reid_tasks[track_id]
+                return result
+            except Exception as e:
+                print(f"ReID error: {e}")
+                del self.pending_reid_tasks[track_id]
+                return None
+        return None
+               
     def _update_loop(self):        
         frame_rate_buffer = []
         avg_frame_rate = 0
@@ -122,9 +194,13 @@ class EmbeddedFrame:
             frame = self.tc.frame_queue[self.source_index].get_nowait()
         except Exception:
             pass
-
+        
+        self.reid_frame_counter += 1
         self.frame_idx += 1
         seen_this_frame = set()
+        active_track_ids = set()
+        process_reid_this_frame = (self.reid_frame_counter % self.process_every_nth_frame == 0)
+        
 
         if frame is not None:
             frame = self.zc.apply_zoom(frame)
@@ -152,38 +228,87 @@ class EmbeddedFrame:
                         if not VideoProcessor.is_in_roi(coords, self.roi_points):
                             # Skip both count and draw for boxes outside ROI
                             continue
-                        
+                    
+                    active_track_ids.add(tid)
                     self.last_seen[tid] = self.frame_idx
                     seen_this_frame.add(tid)
                     
-                    # Increment detection counter for this ID
-                    self.detection_count[tid] = self.detection_count.get(tid, 0) + 1
+                    # Get or assign person ID
+                    person_id = None
                     
-                    if  tid not in self.counted_ids and self.detection_count[tid] >= self.min_detection:
-                        self.counted_ids.add(tid)
+                    # Check for existing ReID results
+                    reid_result = self._get_reid_results(tid)
+                    if reid_result is not None:
+                        person_id = reid_result
+                        if tid not in self.reid_system.track_to_person:
+                            self.reid_system.track_to_person[tid] = person_id
+                    
+                    # Use existing mapping if available
+                    if person_id is None and tid in self.reid_system.track_to_person:
+                        person_id = self.reid_system.track_to_person[tid]
+                    
+                    # Process ReID for new tracks
+                    if person_id is None and process_reid_this_frame:
+                        person_crop = self._extract_person_crop(visual_frame, coords)
+                        if person_crop is not None:
+                            self._process_reid_async(tid, person_crop, self.frame_idx)
+                    
+                    # Use track ID as fallback
+                    if person_id is None:
+                        person_id = f"temp_{tid}"
+                    
+                    # Update tracking counts
+                    self.detection_count[tid] = self.detection_count.get(tid, 0) + 1
+                    if isinstance(person_id, int):  # Only count real person IDs
+                        self.person_detection_count[person_id] = self.person_detection_count.get(person_id, 0) + 1
+                        self.person_last_seen[person_id] = self.frame_idx
+                    
+                    # Count logic (only for confirmed person IDs)
+                    if (isinstance(person_id, int) and 
+                        person_id not in self.counted_person_ids and 
+                        self.person_detection_count.get(person_id, 0) >= self.min_detection):
+                        self.counted_person_ids.add(person_id)
                         VideoProcessor.crowd_count[self.source_index] += 1
-
-                        VideoProcessor.count_to_db(self.source_name, tid, 'enter', 'crowd')
-
-                    # Add met the min detection threshold
-                    if self.detection_count[tid] >= self.min_detection:
-                        self.temp_count.add(tid)
-
-                    # Draw bounding box and ID
-                    color = VideoProcessor.random_colors[tid % len(VideoProcessor.random_colors)]
+                        VideoProcessor.count_to_db(self.source_name, person_id, 'enter', 'crowd')
+                    
+                    # Add to temp count
+                    if (isinstance(person_id, int) and 
+                        self.person_detection_count.get(person_id, 0) >= self.min_detection):
+                        self.temp_count.add(person_id)
+                    
+                    # Draw bounding box
+                    if isinstance(person_id, int):
+                        color = VideoProcessor.random_colors[person_id % len(VideoProcessor.random_colors)]
+                        label = f"P:{person_id}"
+                    else:
+                        color = (128, 128, 128)  # Gray for temporary IDs
+                        label = f"T:{tid}"
+                    
+                     # Draw bounding box with person ID
+                    #color = VideoProcessor.random_colors[person_id % len(VideoProcessor.random_colors)]
                     if self.enable_visual:
-                        x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
+                        x1, y1, x2, y2 = map(int, coords)
                         cv2.rectangle(visual_frame, (x1, y1), (x2, y2), color, 2)
-                        cv2.putText(visual_frame, f"ID: {tid}", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+                        cv2.putText(visual_frame, label, 
+                                (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+            
 
+            # Clean up old track mappings
+            self.reid_system.cleanup_old_tracks(active_track_ids)
+            
             # Clean up tracks that haven't been seen recently
             cleanup_stale(self.last_seen, self.frame_idx, self.detection_count)
 
-            # Remove the temp count if the person is out of frame for 20 frames
+            # Periodic cleanup
+            if self.frame_idx % 1000 == 0:
+                self.reid_system.cleanup_old_persons(self.frame_idx)
             
-            for track_id in list(self.temp_count):
-                if self.frame_idx - self.last_seen[track_id] > 10:
-                    self.temp_count.remove(track_id)
+            # Remove from temp count
+            for person_id in list(self.temp_count):
+                if isinstance(person_id, int):
+                    if self.frame_idx - self.person_last_seen.get(person_id, 0) > 30:
+                        self.temp_count.discard(person_id)
+            
 
             # Calculate and display FPS
             avg_frame_rate = calculate_fps(frame_rate_buffer, t_start)
@@ -208,6 +333,13 @@ class EmbeddedFrame:
         self.root.after(30, self._update_loop)
 
     def stop(self):
+        # Save person gallery before stopping
+        gallery_path = f"person_gallery_{self.source_index}.pkl"
+        self.reid_system.save_gallery(gallery_path)
+        
+        # Shutdown executor
+        self.reid_executor.shutdown(wait=False)
+        
         # Signal threads to stop
         self.running = False
         self.tc.stop_event.set()
