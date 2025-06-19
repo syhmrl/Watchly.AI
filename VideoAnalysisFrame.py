@@ -217,7 +217,7 @@ class VideoAnalysisFrame:
             recall=recall,
             f1_score=f1_score,
             processing_time_ms=avg_processing_time_ms,
-            frame_count=self.frame_count
+            frame_count=self.frame_idx
         )
         
         # Signal threads to stop

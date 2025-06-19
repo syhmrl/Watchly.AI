@@ -55,13 +55,7 @@ random_colors = [(random.randint(0, 255), random.randint(0, 255), random.randint
 # Region of Interest settings
 ENABLE_ROI = True  # Set to True to only count people in a specific region
 # Define ROI polygons for each camera - customize these coordinates for your setup
-ROI_POINTS = [
-    np.array([(3, 70), (1279, 91), (1277, 715), (8, 716)], np.int32),
-    np.array([[], [], []], np.int32),
-]
-
-for i in range(len(ROI_POINTS)):
-    ROI_POINTS[i] = ROI_POINTS[i].reshape((-1, 1, 2))
+ROI_POINTS = []
 
 # Frame capture function
 def capture_frames(source_index):
@@ -123,7 +117,7 @@ def draw_roi(event, x, y, flags, param):
             temp_roi = roi_points.copy()
     
     elif event == cv2.EVENT_MOUSEMOVE:
-        if drawing:
+        if drawing and len(roi_points) > 0:  # Only update if we have points
             temp_roi = roi_points.copy()
             temp_roi.append((x, y))
     
@@ -133,7 +127,8 @@ def draw_roi(event, x, y, flags, param):
             roi_set = True
             # Convert to numpy array and update the ROI_POINTS
             points_array = np.array(roi_points, np.int32).reshape((-1, 1, 2))
-            ROI_POINTS[source_index] = points_array
+            if len(ROI_POINTS) > source_index:
+                ROI_POINTS[source_index] = points_array
             
             # Print the coordinates for future use
             print(f"\nROI coordinates for Camera {source_index + 1}:")
@@ -180,7 +175,7 @@ def draw_roi_overlay(frame, temp_roi, drawing=False, current_mouse_pos=None):
     # Drawing instructions
     instruction_text = [
         "Draw ROI: Left-click to add points",
-        "Right-click to finish (min 3 points)",
+        "Press ENTER to finish (min 3 points)",
         f"Points: {len(temp_roi)}/3+"
     ]
     for i, text in enumerate(instruction_text):

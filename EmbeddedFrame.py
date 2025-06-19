@@ -4,14 +4,11 @@ import threading
 import time
 
 from PIL import Image, ImageTk
-from concurrent.futures import ThreadPoolExecutor
 
 # Your existing modules
 import config
 import thread_manager
 import VideoProcessor
-from PersistentReID import PersistentReID
-
 
 from helpers import *
 
@@ -26,23 +23,11 @@ class EmbeddedFrame:
 
         self.zc = self.tc.zoom_controllers[source_index]
         
-        # Initialize optimized ReID system
-        self.reid_system = PersistentReID(
-            feature_dim=256,  # Reduced for speed
-            max_gallery_size=30,  # Reduced for speed
-            similarity_threshold=0.8,  # Adjusted for better discrimination
-            min_features_per_person=4,
-            max_features_per_person=4
-        )
-        
-        # Load existing gallery if available
-        gallery_path = f"person_gallery_{source_index}.pkl"
-        self.reid_system.load_gallery(gallery_path)
-        
         #ROI State
         self.current_roi_name = None
         self.roi_points = None
         self.custom_roi_set = False
+        self.roi_window_open = False # Track if ROI window is open
         
         # Load model
         self.model = load_model(config.get_model_name())
@@ -55,22 +40,12 @@ class EmbeddedFrame:
         
         # Counting states
         self.temp_count = set()
-        self.counted_person_ids      = set()    # track_id → has contributed to total
+        self.counted_ids     = set()    # track_id → has contributed to total
         self.last_seen       = {}    # track_id -> last frame_idx seen
-        self.detection_count = {}
-        self.person_detection_count  = {}    # track_id -> consecutive frames seen
-        self.person_last_seen = {}       # person_id -> last frame_idx seen
+        self.detection_count = {}    # track_id -> consecutive frames seen
         self.frame_idx       = 0
 
         self.min_detection = 20
-        
-        # Performance optimization
-        self.process_every_nth_frame = 2  # Process ReID every 2nd frame
-        self.reid_frame_counter = 0
-        
-        # Threading for ReID processing
-        self.reid_executor = ThreadPoolExecutor(max_workers=2)
-        self.pending_reid_tasks = {}
 
         # Build UI
         self._build_ui()
@@ -133,53 +108,7 @@ class EmbeddedFrame:
                 )
                 t.start()
                 self.tc.threads.append(t)
-     
-    def _extract_person_crop(self, frame, box_coords):
-        """Extract person crop with minimal padding"""
-        x1, y1, x2, y2 = map(int, box_coords)
-        h, w = frame.shape[:2]
-        
-        # Minimal padding for speed
-        padding = 5
-        x1 = max(0, x1 - padding)
-        y1 = max(0, y1 - padding)
-        x2 = min(w, x2 + padding)
-        y2 = min(h, y2 + padding)
-        
-        if x2 <= x1 or y2 <= y1:
-            return None
-        
-        person_crop = frame[y1:y2, x1:x2]
-        return person_crop
-    
-    def _process_reid_async(self, track_id, person_crop, frame_idx):
-        """Process ReID asynchronously"""
-        if track_id in self.pending_reid_tasks:
-            return  # Already processing this track
-        
-        future = self.reid_executor.submit(
-            self.reid_system.process_detection, 
-            track_id, person_crop, frame_idx
-        )
-        self.pending_reid_tasks[track_id] = future
-    
-    def _get_reid_results(self, track_id):
-        """Get ReID results if available"""
-        if track_id not in self.pending_reid_tasks:
-            return None
-        
-        future = self.pending_reid_tasks[track_id]
-        if future.done():
-            try:
-                result = future.result()
-                del self.pending_reid_tasks[track_id]
-                return result
-            except Exception as e:
-                print(f"ReID error: {e}")
-                del self.pending_reid_tasks[track_id]
-                return None
-        return None
-               
+                
     def _update_loop(self):        
         frame_rate_buffer = []
         avg_frame_rate = 0
@@ -194,13 +123,9 @@ class EmbeddedFrame:
             frame = self.tc.frame_queue[self.source_index].get_nowait()
         except Exception:
             pass
-        
-        self.reid_frame_counter += 1
+
         self.frame_idx += 1
         seen_this_frame = set()
-        active_track_ids = set()
-        process_reid_this_frame = (self.reid_frame_counter % self.process_every_nth_frame == 0)
-        
 
         if frame is not None:
             frame = self.zc.apply_zoom(frame)
@@ -228,87 +153,38 @@ class EmbeddedFrame:
                         if not VideoProcessor.is_in_roi(coords, self.roi_points):
                             # Skip both count and draw for boxes outside ROI
                             continue
-                    
-                    active_track_ids.add(tid)
+                        
                     self.last_seen[tid] = self.frame_idx
                     seen_this_frame.add(tid)
                     
-                    # Get or assign person ID
-                    person_id = None
-                    
-                    # Check for existing ReID results
-                    reid_result = self._get_reid_results(tid)
-                    if reid_result is not None:
-                        person_id = reid_result
-                        if tid not in self.reid_system.track_to_person:
-                            self.reid_system.track_to_person[tid] = person_id
-                    
-                    # Use existing mapping if available
-                    if person_id is None and tid in self.reid_system.track_to_person:
-                        person_id = self.reid_system.track_to_person[tid]
-                    
-                    # Process ReID for new tracks
-                    if person_id is None and process_reid_this_frame:
-                        person_crop = self._extract_person_crop(visual_frame, coords)
-                        if person_crop is not None:
-                            self._process_reid_async(tid, person_crop, self.frame_idx)
-                    
-                    # Use track ID as fallback
-                    if person_id is None:
-                        person_id = f"temp_{tid}"
-                    
-                    # Update tracking counts
+                    # Increment detection counter for this ID
                     self.detection_count[tid] = self.detection_count.get(tid, 0) + 1
-                    if isinstance(person_id, int):  # Only count real person IDs
-                        self.person_detection_count[person_id] = self.person_detection_count.get(person_id, 0) + 1
-                        self.person_last_seen[person_id] = self.frame_idx
                     
-                    # Count logic (only for confirmed person IDs)
-                    if (isinstance(person_id, int) and 
-                        person_id not in self.counted_person_ids and 
-                        self.person_detection_count.get(person_id, 0) >= self.min_detection):
-                        self.counted_person_ids.add(person_id)
+                    if  tid not in self.counted_ids and self.detection_count[tid] >= self.min_detection:
+                        self.counted_ids.add(tid)
                         VideoProcessor.crowd_count[self.source_index] += 1
-                        VideoProcessor.count_to_db(self.source_name, person_id, 'enter', 'crowd')
-                    
-                    # Add to temp count
-                    if (isinstance(person_id, int) and 
-                        self.person_detection_count.get(person_id, 0) >= self.min_detection):
-                        self.temp_count.add(person_id)
-                    
-                    # Draw bounding box
-                    if isinstance(person_id, int):
-                        color = VideoProcessor.random_colors[person_id % len(VideoProcessor.random_colors)]
-                        label = f"P:{person_id}"
-                    else:
-                        color = (128, 128, 128)  # Gray for temporary IDs
-                        label = f"T:{tid}"
-                    
-                     # Draw bounding box with person ID
-                    #color = VideoProcessor.random_colors[person_id % len(VideoProcessor.random_colors)]
-                    if self.enable_visual:
-                        x1, y1, x2, y2 = map(int, coords)
-                        cv2.rectangle(visual_frame, (x1, y1), (x2, y2), color, 2)
-                        cv2.putText(visual_frame, label, 
-                                (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
-            
 
-            # Clean up old track mappings
-            self.reid_system.cleanup_old_tracks(active_track_ids)
-            
+                        VideoProcessor.count_to_db(self.source_name, tid, 'enter', 'crowd')
+
+                    # Add met the min detection threshold
+                    if self.detection_count[tid] >= self.min_detection:
+                        self.temp_count.add(tid)
+
+                    # Draw bounding box and ID
+                    color = VideoProcessor.random_colors[tid % len(VideoProcessor.random_colors)]
+                    if self.enable_visual:
+                        x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
+                        cv2.rectangle(visual_frame, (x1, y1), (x2, y2), color, 2)
+                        cv2.putText(visual_frame, f"ID: {tid}", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+
             # Clean up tracks that haven't been seen recently
             cleanup_stale(self.last_seen, self.frame_idx, self.detection_count)
 
-            # Periodic cleanup
-            if self.frame_idx % 1000 == 0:
-                self.reid_system.cleanup_old_persons(self.frame_idx)
+            # Remove the temp count if the person is out of frame for 20 frames
             
-            # Remove from temp count
-            for person_id in list(self.temp_count):
-                if isinstance(person_id, int):
-                    if self.frame_idx - self.person_last_seen.get(person_id, 0) > 30:
-                        self.temp_count.discard(person_id)
-            
+            for track_id in list(self.temp_count):
+                if self.frame_idx - self.last_seen[track_id] > 10:
+                    self.temp_count.remove(track_id)
 
             # Calculate and display FPS
             avg_frame_rate = calculate_fps(frame_rate_buffer, t_start)
@@ -333,13 +209,6 @@ class EmbeddedFrame:
         self.root.after(30, self._update_loop)
 
     def stop(self):
-        # Save person gallery before stopping
-        gallery_path = f"person_gallery_{self.source_index}.pkl"
-        self.reid_system.save_gallery(gallery_path)
-        
-        # Shutdown executor
-        self.reid_executor.shutdown(wait=False)
-        
         # Signal threads to stop
         self.running = False
         self.tc.stop_event.set()
@@ -386,13 +255,30 @@ class EmbeddedFrame:
         # window to choose from saved ROIs
         roi_defs = config.get_roi_values()
         names = list(roi_defs.keys())
+        
+        if not names:
+            tk.messagebox.showwarning("No ROIs", "No saved ROIs found. Create a new ROI first.")
+            return
+        
         win = tk.Toplevel(self.root)
         win.title("Select ROI")
+        win.geometry("200x150")
+        win.transient(self.root)
+        win.grab_set()
+        
+        # Set window open flag and disable button
+        self.roi_window_open = True
+        self.btn_select_roi.config(state=tk.DISABLED)
+
         tk.Label(win, text="Choose ROI:").pack()
         var = tk.StringVar(value=self.current_roi_name or names[0])
-        tk.OptionMenu(win, var, *names).pack()
+        tk.OptionMenu(win, var, *names).pack(padx=10, pady=10)
         
-        # self.btn_select_roi.config(state=tk.DISABLED)
+        def on_window_close():
+            # Re-enable button and reset flag when window closes
+            self.roi_window_open = False
+            self.btn_select_roi.config(state=tk.NORMAL)
+            win.destroy()
         
         def apply():
             name = var.get()
@@ -400,13 +286,14 @@ class EmbeddedFrame:
             arr = np.array(coords, np.int32).reshape((-1,1,2))
             self.roi_points = arr
             self.current_roi_name = name; 
-            self.custom_roi_set=False
+            self.custom_roi_set = False
             self.enable_roi = True
             self.btn_clear_roi.config(state=tk.NORMAL)
-            self.btn_select_roi.config(state=tk.NORMAL)
-            win.destroy()
+            on_window_close()
             
         tk.Button(win, text="Apply", command=apply).pack()
+        
+        win.protocol("WM_DELETE_WINDOW", on_window_close)
         
     def _clear_roi(self):
         # reset to full frame
@@ -414,11 +301,13 @@ class EmbeddedFrame:
         self.current_roi_name = None
         self.enable_roi = False
         self.btn_clear_roi.config(state=tk.DISABLED)
+        self.btn_new_roi.config(state=tk.NORMAL)
         
     def _create_new_roi(self):
         """Create a new ROI by drawing on the current frame"""
         # Reset any existing temp ROI points
         VideoProcessor.temp_roi = []
+        VideoProcessor.roi_points = []
         VideoProcessor.drawing = False
         VideoProcessor.current_mouse_pos = None
         
@@ -431,10 +320,12 @@ class EmbeddedFrame:
         
         # Instructions
         print(f"Drawing ROI for Camera {self.source_index}")
-        print("Click to add points, press ENTER when finished, ESC to cancel")
+        print("Click to add points, press ENTER when finished, ESC to cancel, C to clear points")
+        
+        roi_creation_active = True
         
         try:
-            while True:
+            while roi_creation_active:
                 # Get current frame
                 try:
                     frame = self.tc.frame_queue[self.source_index].get(timeout=0.1)
@@ -443,7 +334,8 @@ class EmbeddedFrame:
                     frame = np.zeros((VideoProcessor.FRAME_HEIGHT, VideoProcessor.FRAME_WIDTH, 3), dtype=np.uint8)
                 
                 # Apply zoom if needed
-                frame = self.zc.apply_zoom(frame)
+                if hasattr(self, 'zc'):
+                    frame = self.zc.apply_zoom(frame)
                 frame = cv2.resize(frame, (VideoProcessor.FRAME_WIDTH, VideoProcessor.FRAME_HEIGHT))
                 
                 # Draw ROI overlay
@@ -455,34 +347,54 @@ class EmbeddedFrame:
                 )
                 
                 cv2.imshow(win_name, disp)
+                
+                # Check if window was closed by user (X button)
+                if cv2.getWindowProperty(win_name, cv2.WND_PROP_VISIBLE) < 1:
+                    print("ROI creation window closed by user")
+                    roi_creation_active = False
+                    break
+                
                 key = cv2.waitKey(1) & 0xFF
                 
                 # Check for key presses
                 if key == 13:  # ENTER key
                     if len(VideoProcessor.temp_roi) >= 3:  # Need at least 3 points for a polygon
+                        roi_creation_active = False
                         cv2.destroyWindow(win_name)
                         self._save_new_roi()
-                        break
+                        return
                     else:
+                        tk.messagebox.showwarning("Insufficient ROIs", "Need at least 3 points to create ROI. Continue drawing...")
                         print("Need at least 3 points to create ROI. Continue drawing...")
-                elif key == 27:  # ESC key
+                elif key == 27 or cv2.getWindowProperty(win_name, cv2.WND_PROP_VISIBLE) < 1:  # ESC key
                     print("ROI creation cancelled")
-                    self.btn_clear_roi.config(state=tk.NORMAL)
-                    VideoProcessor.temp_roi = []
-                    cv2.destroyWindow(win_name)
+                    roi_creation_active = False
                     break
                 elif key == ord('c') or key == ord('C'):  # Clear current drawing
                     VideoProcessor.temp_roi = []
+                    VideoProcessor.roi_points = []  # Also clear this to sync
+                    VideoProcessor.drawing = False
+                    VideoProcessor.current_mouse_pos = None
                     print("ROI points cleared. Start drawing again...")
                     
         except Exception as e:
             print(f"Error during ROI creation: {e}")
-            cv2.destroyWindow(win_name)
+        finally:
+            # Cleanup
+            try:
+                cv2.destroyWindow(win_name)
+            except:
+                pass
+            VideoProcessor.temp_roi = []
+            VideoProcessor.roi_points = []
+            VideoProcessor.drawing = False
+            self.btn_new_roi.config(state=tk.NORMAL)
             
     def _save_new_roi(self):
         """Pop up window to name and save the new ROI"""
         if not VideoProcessor.temp_roi:
             print("No ROI points to save")
+            self.btn_new_roi.config(state=tk.NORMAL)    
             return
         
         # Create naming window
@@ -550,9 +462,11 @@ class EmbeddedFrame:
                 
                 # Clear temp ROI
                 VideoProcessor.temp_roi = []
+                VideoProcessor.roi_points = []
                 
                 # Close the naming window
                 name_window.destroy()
+                self.btn_new_roi.config(state=tk.NORMAL)
                 
             except Exception as e:
                 error_label.config(text=f"Error saving ROI: {str(e)}")
@@ -561,12 +475,12 @@ class EmbeddedFrame:
         
         def cancel_save():
             VideoProcessor.temp_roi = []
+            VideoProcessor.roi_points = []
             self.btn_new_roi.config(state=tk.NORMAL)
             name_window.destroy()
         
         # Handle Enter key in entry field
         def on_enter(event):
-            self.btn_new_roi.config(state=tk.NORMAL)
             save_roi()
         
         name_entry.bind('<Return>', on_enter)

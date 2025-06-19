@@ -1,7 +1,8 @@
 import sqlite3
 import queue
 import time
-import datetime
+
+from datetime import datetime
 from config import get_database_path
 
 class Database:
@@ -151,7 +152,7 @@ def insert_video_analysis(
     ts = tracker_settings
     
     # Generate analysis timestamp
-    analysis_timestamp = datetime.datetime.now().isoformat()
+    analysis_timestamp = datetime.now().isoformat()
     
     cur.execute("""
         INSERT INTO video_analysis (

@@ -5,7 +5,7 @@ import VideoProcessor
 import os
 import config
 
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from tkcalendar import DateEntry
 from tkinter import messagebox, ttk
@@ -219,6 +219,39 @@ def show_selection_window():
         graph_frame = tk.Frame(query_win, padx=10, pady=10)
         graph_frame.pack(fill=tk.BOTH, expand=True)
         
+        # Filtering options
+        filter_frame = tk.LabelFrame(control_frame, text="Filters", padx=10, pady=10)
+        filter_frame.pack(fill=tk.X, pady=10)
+        
+        # Mode selection
+        mode_frame = tk.Frame(filter_frame)
+        mode_frame.grid(row=0, column=0, padx=10, pady=5, sticky='w')
+        
+        tk.Label(mode_frame, text="Mode:").grid(row=0, column=0, sticky='w')
+        mode_var = tk.StringVar(value="all")
+        mode_combo = ttk.Combobox(mode_frame, textvariable=mode_var, values=["all", "crowd", "video"], 
+                                 state="readonly", width=10)
+        mode_combo.grid(row=0, column=1, padx=5)
+        
+        # Source selection
+        source_frame = tk.Frame(filter_frame)
+        source_frame.grid(row=0, column=1, padx=10, pady=5, sticky='w')
+        
+        tk.Label(source_frame, text="Source:").grid(row=0, column=0, sticky='w')
+        source_var = tk.StringVar(value="all")
+        source_combo = ttk.Combobox(source_frame, textvariable=source_var, state="readonly", width=15)
+        source_combo.grid(row=0, column=1, padx=5)
+        
+         # Direction selection
+        direction_frame = tk.Frame(filter_frame)
+        direction_frame.grid(row=0, column=2, padx=10, pady=5, sticky='w')
+        
+        tk.Label(direction_frame, text="Direction:").grid(row=0, column=0, sticky='w')
+        direction_var = tk.StringVar(value="both")
+        direction_combo = ttk.Combobox(direction_frame, textvariable=direction_var, 
+                                     values=["both", "enter", "exit"], state="readonly", width=10)
+        direction_combo.grid(row=0, column=1, padx=5)
+        
         # Date and time selection
         date_time_frame = tk.Frame(control_frame)
         date_time_frame.pack(fill=tk.X)
@@ -260,39 +293,6 @@ def show_selection_window():
         tk.Label(time_frame, text=":").grid(row=0, column=3)
         end_sec = tk.Spinbox(time_frame, from_=0, to=59, width=2, format="%02.0f")
         end_sec.grid(row=0, column=4)
-        
-        # Filtering options
-        filter_frame = tk.LabelFrame(control_frame, text="Filters", padx=10, pady=10)
-        filter_frame.pack(fill=tk.X, pady=10)
-        
-        # Mode selection
-        mode_frame = tk.Frame(filter_frame)
-        mode_frame.grid(row=0, column=0, padx=10, pady=5, sticky='w')
-        
-        tk.Label(mode_frame, text="Mode:").grid(row=0, column=0, sticky='w')
-        mode_var = tk.StringVar(value="all")
-        mode_combo = ttk.Combobox(mode_frame, textvariable=mode_var, values=["all", "crowd", "video"], 
-                                 state="readonly", width=10)
-        mode_combo.grid(row=0, column=1, padx=5)
-        
-        # Source selection
-        source_frame = tk.Frame(filter_frame)
-        source_frame.grid(row=0, column=1, padx=10, pady=5, sticky='w')
-        
-        tk.Label(source_frame, text="Source:").grid(row=0, column=0, sticky='w')
-        source_var = tk.StringVar(value="all")
-        source_combo = ttk.Combobox(source_frame, textvariable=source_var, state="readonly", width=15)
-        source_combo.grid(row=0, column=1, padx=5)
-        
-         # Direction selection
-        direction_frame = tk.Frame(filter_frame)
-        direction_frame.grid(row=0, column=2, padx=10, pady=5, sticky='w')
-        
-        tk.Label(direction_frame, text="Direction:").grid(row=0, column=0, sticky='w')
-        direction_var = tk.StringVar(value="both")
-        direction_combo = ttk.Combobox(direction_frame, textvariable=direction_var, 
-                                     values=["both", "enter", "exit"], state="readonly", width=10)
-        direction_combo.grid(row=0, column=1, padx=5)
         
         # Function to populate source dropdown based on mode
         def populate_sources():
@@ -458,7 +458,6 @@ def show_selection_window():
         }
         
         count = get_total_counts_filtered(start_timestamp, end_timestamp, filters)
-        # count = get_total_counts(start_timestamp, end_timestamp)
 
         result_label.config(text=f"Total Entries: {count}")
 
@@ -478,7 +477,6 @@ def show_selection_window():
         if resolution == "second":
             title = "Entries by Second"
             groupby = "timestamp"
-            # groupby = "strftime('%Y-%m-%d %H:%M:%S', timestamp)"
         elif resolution == "minute":
             title = "Entries by Minute"
             groupby = "strftime('%Y-%m-%d %H:%M', timestamp)"
@@ -507,38 +505,24 @@ def show_selection_window():
         else:
             data = get_grouped_counts_filtered(start_timestamp, end_timestamp, groupby, filters)
         
-
-        data = get_grouped_counts_filtered(start_timestamp, end_timestamp, groupby, filters)
-        
         # Convert timestamps to datetime objects for better plotting
         time_periods = []
         counts = []
         
-        # for row in data:
-        #     try:
-        #         if resolution == "day":
-        #             dt = datetime.strptime(row[0], "%Y-%m-%d")
-        #         elif resolution == "hour":
-        #             dt = datetime.strptime(row[0], "%Y-%m-%d %H:00:00")
-        #         elif resolution == "minute":
-        #             dt = datetime.strptime(row[0], "%Y-%m-%d %H:%M")
-        #         else:  # second
-        #             dt = datetime.strptime(row[0], "%Y-%m-%d %H:%M:%S")
-        #     except ValueError as e:
-        #         print(f"Error parsing datetime '{row[0]}': {e}")
-        #         continue
-        #     time_periods.append(dt)
-        #     counts.append(row[1])
-        
         if resolution == "second":
-            # For second resolution, process individual timestamps
+            # For second resolution, create a complete time series with gaps
             from collections import defaultdict
+            
+            # Parse start and end times
+            start_dt = datetime.fromisoformat(start_timestamp)
+            end_dt = datetime.fromisoformat(end_timestamp)
+            
+            # Count occurrences per second
             second_counts = defaultdict(int)
             
-            # Group by second (truncating milliseconds)
+            # Process individual timestamps
             for row in data:
                 try:
-                    # Parse the full timestamp
                     if 'T' in row[0]:
                         dt = datetime.fromisoformat(row[0])
                     else:
@@ -551,48 +535,179 @@ def show_selection_window():
                     print(f"Error parsing timestamp '{row[0]}': {e}")
                     continue
             
-            # Convert to sorted lists
-            sorted_times = sorted(second_counts.keys())
-            time_periods = sorted_times
-            counts = [second_counts[t] for t in sorted_times]
+            # Create complete time series from start to end (every second)
+            current_time = start_dt.replace(microsecond=0)
+            end_time_truncated = end_dt.replace(microsecond=0)
             
-        else:
-            # For other resolutions, use the grouped data as before
+            while current_time <= end_time_truncated:
+                time_periods.append(current_time)
+                counts.append(second_counts.get(current_time, 0))  # 0 for gaps
+                current_time += timedelta(seconds=1)
+                
+        elif resolution == "minute":
+            # For minute resolution, create complete time series
+            
+            # Parse start and end times
+            start_dt = datetime.fromisoformat(start_timestamp)
+            end_dt = datetime.fromisoformat(end_timestamp)
+            
+            # Create dictionary from existing data
+            minute_counts = {}
             for row in data:
                 try:
-                    if resolution == "day":
-                        dt = datetime.strptime(row[0], "%Y-%m-%d")
-                    elif resolution == "hour":
-                        dt = datetime.strptime(row[0], "%Y-%m-%d %H:00:00")
-                    elif resolution == "minute":
-                        dt = datetime.strptime(row[0], "%Y-%m-%d %H:%M")
+                    dt = datetime.strptime(row[0], "%Y-%m-%d %H:%M")
+                    minute_counts[dt] = row[1]
                 except ValueError as e:
                     print(f"Error parsing datetime '{row[0]}': {e}")
                     continue
-                time_periods.append(dt)
-                counts.append(row[1])
+            
+            # Create complete time series (every minute)
+            current_time = start_dt.replace(second=0, microsecond=0)
+            end_time_truncated = end_dt.replace(second=0, microsecond=0)
+            
+            while current_time <= end_time_truncated:
+                time_periods.append(current_time)
+                counts.append(minute_counts.get(current_time, 0))  # 0 for gaps
+                current_time += timedelta(minutes=1)
+                
+        elif resolution == "hour":
+            # For hour resolution, create complete time series
+            
+            # Parse start and end times
+            start_dt = datetime.fromisoformat(start_timestamp)
+            end_dt = datetime.fromisoformat(end_timestamp)
+            
+            # Create dictionary from existing data
+            hour_counts = {}
+            for row in data:
+                try:
+                    dt = datetime.strptime(row[0], "%Y-%m-%d %H:00:00")
+                    hour_counts[dt] = row[1]
+                except ValueError as e:
+                    print(f"Error parsing datetime '{row[0]}': {e}")
+                    continue
+            
+            # Create complete time series (every hour)
+            current_time = start_dt.replace(minute=0, second=0, microsecond=0)
+            end_time_truncated = end_dt.replace(minute=0, second=0, microsecond=0)
+            
+            while current_time <= end_time_truncated:
+                time_periods.append(current_time)
+                counts.append(hour_counts.get(current_time, 0))  # 0 for gaps
+                current_time += timedelta(hours=1)
+                
+        else:  # day resolution
+            # For day resolution, create complete time series
+            
+            # Parse start and end times
+            start_dt = datetime.fromisoformat(start_timestamp)
+            end_dt = datetime.fromisoformat(end_timestamp)
+            
+            # Create dictionary from existing data
+            day_counts = {}
+            for row in data:
+                try:
+                    dt = datetime.strptime(row[0], "%Y-%m-%d")
+                    day_counts[dt] = row[1]
+                except ValueError as e:
+                    print(f"Error parsing datetime '{row[0]}': {e}")
+                    continue
+            
+            # Create complete time series (every day)
+            current_date = start_dt.replace(hour=0, minute=0, second=0, microsecond=0)
+            end_date_truncated = end_dt.replace(hour=0, minute=0, second=0, microsecond=0)
+            
+            while current_date <= end_date_truncated:
+                time_periods.append(current_date)
+                counts.append(day_counts.get(current_date, 0))  # 0 for gaps
+                current_date += timedelta(days=1)
         
         # Create figure
-        fig, ax = plt.subplots(figsize=(10, 6))
+        fig, ax = plt.subplots(figsize=(12, 6))
         
         if visualization == "bar":
-            ax.bar(time_periods, counts, width=0.8)
+            bars = ax.bar(time_periods, counts, width=0.8)
+            
+            # Color bars differently for zero values (gaps)
+            for i, (bar, count) in enumerate(zip(bars, counts)):
+                if count == 0:
+                    bar.set_color('lightgray')
+                    bar.set_alpha(0.3)
+                else:
+                    bar.set_color('steelblue')
+                    
         elif visualization == "line":
-            ax.plot(time_periods, counts, linestyle='-', linewidth=1)
-        elif visualization == "area":
-            ax.fill_between(time_periods, counts, alpha=0.4)
-            ax.plot(time_periods, counts, linestyle='-', linewidth=1)
+            # ax.plot(time_periods, counts, linestyle='-', linewidth=1)
+            # For line charts, use None for gaps to create actual breaks in the line
+            display_counts = [count if count > 0 else None for count in counts]
+            ax.plot(time_periods, display_counts, linestyle='-', linewidth=2, marker='o', markersize=3)
         
-        # Format x-axis based on resolution
-        if resolution == "second" or resolution == "minute":
-            ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S'))
-            plt.xticks(rotation=45)
-        elif resolution == "hour":
+        elif visualization == "area":
+            # ax.fill_between(time_periods, counts, alpha=0.4)
+            # ax.plot(time_periods, counts, linestyle='-', linewidth=1)
+            # For area charts, use 0 for gaps but make them visible
+            ax.fill_between(time_periods, counts, alpha=0.4, step='mid')
+            ax.plot(time_periods, counts, linestyle='-', linewidth=1, marker='o', markersize=2)
+        
+        # FIXED: Smart tick handling to prevent overflow
+        num_points = len(time_periods)
+        max_ticks = 50  # Conservative limit to prevent overflow
+        
+        # Calculate appropriate tick intervals
+        if resolution == "second":
+            if num_points <= 60:  # Less than 1 minute
+                interval = max(1, num_points // 20)
+                ax.xaxis.set_major_locator(mdates.SecondLocator(interval=interval))
+                ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S'))
+            elif num_points <= 3600:  # Less than 1 hour
+                interval = max(30, num_points // max_ticks)
+                ax.xaxis.set_major_locator(mdates.SecondLocator(interval=interval))
+                ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S'))
+            else:  # More than 1 hour
+                interval = max(300, num_points // max_ticks)  # At least 5 minutes
+                ax.xaxis.set_major_locator(mdates.SecondLocator(interval=interval))
+                ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S'))
+            
+        elif resolution == "minute":
+            if num_points <= 60:  # Less than 1 hour
+                interval = max(1, num_points // 20)
+                ax.xaxis.set_major_locator(mdates.MinuteLocator(interval=interval))
+            elif num_points <= 1440:  # Less than 1 day
+                interval = max(30, num_points // max_ticks)
+                ax.xaxis.set_major_locator(mdates.MinuteLocator(interval=interval))
+            else:  # More than 1 day
+                interval = max(60, num_points // max_ticks)
+                ax.xaxis.set_major_locator(mdates.MinuteLocator(interval=interval))
             ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
-            plt.xticks(rotation=45)
-        else:  # day
+            
+        elif resolution == "hour":
+            if num_points <= 24:  # Less than 1 day
+                interval = max(1, num_points // 12)
+                ax.xaxis.set_major_locator(mdates.HourLocator(interval=interval))
+                ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
+            elif num_points <= 168:  # Less than 1 week
+                interval = max(6, num_points // max_ticks)
+                ax.xaxis.set_major_locator(mdates.HourLocator(interval=interval))
+                ax.xaxis.set_major_formatter(mdates.DateFormatter('%m-%d %H:%M'))
+            else:  # More than 1 week
+                interval = max(24, num_points // max_ticks)
+                ax.xaxis.set_major_locator(mdates.HourLocator(interval=interval))
+                ax.xaxis.set_major_formatter(mdates.DateFormatter('%m-%d %H:%M'))
+            
+        else:  # day resolution
+            if num_points <= 31:  # Less than 1 month
+                interval = max(1, num_points // 15)
+                ax.xaxis.set_major_locator(mdates.DayLocator(interval=interval))
+            elif num_points <= 365:  # Less than 1 year
+                interval = max(7, num_points // max_ticks)
+                ax.xaxis.set_major_locator(mdates.DayLocator(interval=interval))
+            else:  # More than 1 year
+                interval = max(30, num_points // max_ticks)
+                ax.xaxis.set_major_locator(mdates.DayLocator(interval=interval))
             ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
-            plt.xticks(rotation=45)
+            
+        # Always rotate x-axis labels for better readability
+        plt.xticks(rotation=45)
         
         # Set labels and title
         ax.set_xlabel('Time')
@@ -602,6 +717,20 @@ def show_selection_window():
         # Add grid for better readability
         ax.grid(True, linestyle='--', alpha=0.7)
         
+        # Set y-axis to start from 0 for better gap visualization
+        ax.set_ylim(bottom=0)
+        
+        # Add statistics text
+        if len(counts) > 0:
+            total_events = sum(counts)
+            max_count = max(counts) if counts else 0
+            gap_periods = counts.count(0)
+            active_periods = len(counts) - gap_periods
+            
+            stats_text = f"Total Events: {total_events} | Max/Period: {max_count} | Active Periods: {active_periods}/{len(counts)}"
+            ax.text(0.02, 0.98, stats_text, transform=ax.transAxes, 
+                    verticalalignment='top', bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.8))
+    
         # Adjust layout
         plt.tight_layout()
         
@@ -893,65 +1022,6 @@ def open_model_setting(sel):
         # close and back to menu
         on_close()
         
-# def open_video_analysis(sel):
-#     from VideoAnalysisFrame import VideoAnalysisFrame
-#     # Hide main menu
-#     sel.withdraw()
-
-#     def on_close():
-#         # When this window closes, re-show menu
-#         try:
-#             sel.deiconify()
-#         except tk.TclError:
-#             # if menu was destroyed, recreate
-#             show_selection_window()
-#         va_win.destroy()
-
-#     # Create Video Analysis window
-#     va_win = tk.Toplevel(sel)
-#     va_win.title("Video Analysis")
-#     va_win.geometry("300x200")
-#     va_win.protocol("WM_DELETE_WINDOW", on_close)
-    
-#     # --- Video Selection ---
-#     tk.Label(va_win, text="Select Video:").pack(anchor="w", pady=(10,0), padx=10)
-#     video_files = [f for f in os.listdir("video") if f.lower().endswith((".mp4", ".avi"))]
-#     video_var = tk.StringVar(value=video_files[0] if video_files else "")
-#     ttk.OptionMenu(va_win, video_var, video_var.get(), *video_files).pack(fill="x", padx=10)
-    
-    
-    
-#     # Buttons: Start analysis & Reset defaults
-#     btn_frame = tk.Frame(va_win)
-#     btn_frame.pack(fill="x", pady=10, padx=10)
-#     tk.Button(btn_frame, text="Start", width=15, command=lambda: on_submit()).pack(side=tk.RIGHT, padx=5)
-    
-#     def on_submit():
-#         # Hide selection window and start threads
-#         va_win.destroy()  # Hide instead of destroy
- 
-#         # Start the threads
-#         # thread_controller.reset()
-#         start_threads()
-        
-#         # Define callback for when counter window closes
-#         def on_va_close():
-#             # Stop all threads
-#             thread_controller.stop_event.set()
-#             # join threads
-#             for t in thread_controller.threads:
-#                 if t.is_alive():
-#                     t.join(timeout=1.0)
-#             # Re‐show the selection window
-#             try: 
-#                 sel.deiconify()
-#             except tk.TclError: show_selection_window()
-        
-#         # Create a new window for the detector UI
-#         video_analysis = tk.Toplevel(sel)
-#         video_analysis.title("Video Analysis")
-#         # Pass either source_index=0 or loop for multiple sources
-#         app = VideoAnalysisFrame(video_analysis, video_path=video_var.get(), on_close=on_va_close)
     
 def open_video_analysis(sel):
     from VideoAnalysisFrame import VideoAnalysisFrame
