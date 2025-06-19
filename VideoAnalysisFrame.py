@@ -178,6 +178,7 @@ class VideoAnalysisFrame:
         self.root.after(30, self._update_loop)
 
     def stop(self):
+        print("Stopping video analysis...")
         # Store end timestamp when video analysis finishes
         self.end_timestamp = datetime.datetime.now().isoformat()
         
@@ -225,10 +226,14 @@ class VideoAnalysisFrame:
         self.tc.stop_event.set()
 
         # Join all threads
+        print("Waiting for threads to finish...")
         current = threading.current_thread()
         for t in self.tc.threads:
             if t.is_alive() and t is not current:
+                print(f"Joining thread: {t.name}")
                 t.join(timeout=1.0)
+                if t.is_alive():
+                    print(f"Warning: Thread {t.name} did not stop gracefully")
 
         # Destroy window
         self.root.destroy()

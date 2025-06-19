@@ -242,6 +242,15 @@ def show_selection_window():
         source_combo = ttk.Combobox(source_frame, textvariable=source_var, state="readonly", width=15)
         source_combo.grid(row=0, column=1, padx=5)
         
+        # Run Index selection (initially hidden)
+        run_index_frame = tk.Frame(filter_frame)
+        
+        run_index_label = tk.Label(run_index_frame, text="Run:")
+        run_index_label.grid(row=0, column=0, sticky='w')
+        run_index_var = tk.StringVar(value="all")
+        run_index_combo = ttk.Combobox(run_index_frame, textvariable=run_index_var, state="readonly", width=10)
+        run_index_combo.grid(row=0, column=1, padx=5)
+        
          # Direction selection
         direction_frame = tk.Frame(filter_frame)
         direction_frame.grid(row=0, column=2, padx=10, pady=5, sticky='w')
@@ -294,6 +303,38 @@ def show_selection_window():
         end_sec = tk.Spinbox(time_frame, from_=0, to=59, width=2, format="%02.0f")
         end_sec.grid(row=0, column=4)
         
+        # Function to populate run index dropdown based on selected video
+        def populate_run_indices():
+            try:
+                current_source = source_var.get()
+                if current_source != "all":
+                    run_indices = get_video_run_indices(current_source)
+                    run_values = ["all"] + [str(idx) for idx in run_indices]
+                    run_index_combo['values'] = run_values
+                    run_index_combo.set("all")
+                else:
+                    run_index_combo['values'] = ["all"]
+                    run_index_combo.set("all")
+            except Exception as e:
+                print(f"Error populating run indices: {e}")
+                run_index_combo['values'] = ["all"]
+                run_index_combo.set("all")
+        
+        # Function to show/hide run index combobox
+        def toggle_run_index_visibility():
+            current_mode = mode_var.get()
+            current_source = source_var.get()
+            print("mode " + current_mode)
+            print("source " + current_source)
+            
+            if current_mode == "video" and current_source != "all":
+                print("Should be display grid")
+                run_index_frame.grid(row=0, column=2, padx=10, pady=5, sticky='w')
+                populate_run_indices()
+            else:
+                run_index_frame.grid_remove()
+                run_index_var.set("all")
+        
         # Function to populate source dropdown based on mode
         def populate_sources():
             try:
@@ -314,14 +355,21 @@ def show_selection_window():
         # Function to handle mode change
         def on_mode_change(*args):
             populate_sources()
+            toggle_run_index_visibility()
             # Reset to default datetime when changing mode
             if mode_var.get() != "video":
                 reset_to_default_datetime()
                 
         # Function to handle source change when in video mode
         def on_source_change(*args):
-            if mode_var.get() == "video" and source_var.get() != "all":
-                set_video_datetime(source_var.get())
+            current_mode = mode_var.get()
+            current_source = source_var.get()
+            
+            if current_mode == "video" and current_source != "all":
+                set_video_datetime(current_source)
+                
+            # Show/hide run index combobox based on selection
+            toggle_run_index_visibility()
         
         # Function to reset datetime to default (today)
         def reset_to_default_datetime():
@@ -402,7 +450,7 @@ def show_selection_window():
                 end_date_entry, end_hour, end_min, end_sec,
                 resolution_var.get(), visual_var.get(),
                 mode_var.get(), source_var.get(), direction_var.get(),
-                result_label, graph_frame
+                result_label, graph_frame, run_index_var.get()
             ),
             bg="#4CAF50", fg="white", padx=10, pady=5
         )
@@ -439,7 +487,7 @@ def show_selection_window():
     def fetch_data(start_date_entry, start_hour, start_min, start_sec, 
                    end_date_entry, end_hour, end_min, end_sec,
                    resolution, visualization, mode_type, source, direction,
-                   result_label, graph_frame):
+                   result_label, graph_frame, run_index="all"):
         # Get date and time values
         start_date = start_date_entry.get_date()
         start_time = f"{start_hour.get().zfill(2)}:{start_min.get().zfill(2)}:{start_sec.get().zfill(2)}"
@@ -454,7 +502,8 @@ def show_selection_window():
         filters = {
             'mode_type': mode_type if mode_type != 'all' else None,
             'source': source if source != 'all' else None,
-            'direction': direction if direction != 'both' else None
+            'direction': direction if direction != 'both' else None,
+            'run_index': run_index if run_index != 'all' else None
         }
         
         count = get_total_counts_filtered(start_timestamp, end_timestamp, filters)
@@ -495,6 +544,8 @@ def show_selection_window():
             filter_info.append(f"Source: {filters['source']}")
         if filters['direction']:
             filter_info.append(f"Direction: {filters['direction']}")
+        if filters['run_index']:
+            filter_info.append(f"Run: {filters['run_index']}")
         
         if filter_info:
             title += f" ({', '.join(filter_info)})"
@@ -1022,7 +1073,6 @@ def open_model_setting(sel):
         # close and back to menu
         on_close()
         
-    
 def open_video_analysis(sel):
     from VideoAnalysisFrame import VideoAnalysisFrame
     # Hide main menu
@@ -1106,7 +1156,6 @@ def open_video_analysis(sel):
         selected_video = video_var.get()
         if selected_video:
             try:
-                from database_utils import get_next_run_index, get_analysis_comparison
                 next_run = get_next_run_index(selected_video)
                 existing_runs = get_analysis_comparison(selected_video)
                 
@@ -1169,7 +1218,6 @@ def open_video_analysis(sel):
         
         # Get run index
         try:
-            from database_utils import get_next_run_index
             run_index = get_next_run_index(video_var.get())
         except:
             run_index = 1
@@ -1207,3 +1255,4 @@ def open_video_analysis(sel):
             ground_truth_count=ground_truth_count,
             run_index=run_index
         )
+        

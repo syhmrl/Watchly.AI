@@ -154,54 +154,61 @@ def insert_video_analysis(
     # Generate analysis timestamp
     analysis_timestamp = datetime.now().isoformat()
     
-    cur.execute("""
-        INSERT INTO video_analysis (
-          video_name, video_width, video_height, video_fps,
-          start_timestamp, end_timestamp,
-          total_count, model_name, confidence, iou,
-          last_tracked_id, tracker_type, track_high_thresh,
-          track_low_thresh, new_track_thresh, track_buffer,
-          match_thresh, fuse_score, gmc_method, proximity_thresh,
-          appearance_thresh, with_reid, tracker_model,
-          run_index, ground_truth_count, precision, recall, f1_score,
-          processing_time_ms, frame_count, analysis_timestamp
-        ) VALUES (
-          ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
-        )
-    """, (
-        video_name,
-        video_width,
-        video_height,
-        int(video_fps),
-        start_timestamp,
-        end_timestamp,
-        total_count,
-        model_name,
-        confidence,
-        iou,
-        last_tracked_id,
-        ts["tracker_type"],
-        ts["track_high_thresh"],
-        ts["track_low_thresh"],
-        ts["new_track_thresh"],
-        ts["track_buffer"],
-        ts["match_thresh"],
-        1 if ts["fuse_score"] else 0,
-        ts.get("gmc_method"),
-        ts.get("proximity_thresh"),
-        ts.get("appearance_thresh"),
-        1 if ts.get("with_reid") else 0,
-        ts.get("model"),
-        run_index,
-        ground_truth_count,
-        precision,
-        recall,
-        f1_score,
-        processing_time_ms,
-        frame_count,
-        analysis_timestamp
-    ))
-    conn.commit()
+    try:
+        cur.execute("""
+            INSERT INTO video_analysis (
+            video_name, video_width, video_height, video_fps,
+            start_timestamp, end_timestamp,
+            total_count, model_name, confidence, iou,
+            last_tracked_id, tracker_type, track_high_thresh,
+            track_low_thresh, new_track_thresh, track_buffer,
+            match_thresh, fuse_score, gmc_method, proximity_thresh,
+            appearance_thresh, with_reid, tracker_model,
+            run_index, ground_truth_count, precision, recall, f1_score,
+            processing_time_ms, frame_count, analysis_timestamp
+            ) VALUES (
+            ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
+            )
+        """, (
+            video_name,
+            video_width,
+            video_height,
+            int(video_fps),
+            start_timestamp,
+            end_timestamp,
+            total_count,
+            model_name,
+            confidence,
+            iou,
+            last_tracked_id,
+            ts["tracker_type"],
+            ts["track_high_thresh"],
+            ts["track_low_thresh"],
+            ts["new_track_thresh"],
+            ts["track_buffer"],
+            ts["match_thresh"],
+            1 if ts["fuse_score"] else 0,
+            ts.get("gmc_method"),
+            ts.get("proximity_thresh"),
+            ts.get("appearance_thresh"),
+            1 if ts.get("with_reid") else 0,
+            ts.get("model"),
+            run_index,
+            ground_truth_count,
+            precision,
+            recall,
+            f1_score,
+            processing_time_ms,
+            frame_count,
+            analysis_timestamp
+        ))
+        
+        conn.commit()
+        
+        print(f"Video analysis inserted for {video_name}, run {run_index}")
+    except sqlite3.Error as e:
+        print(f"Error inserting video analysis: {e}")
+        raise
 
 def get_analysis_comparison(video_name):
     """
@@ -315,6 +322,8 @@ def get_video_timestamps(video_name):
         return None, None
     finally:
         db.close()
+        
+
 
 def get_total_counts(start_ts, end_ts):
     db = Database()
@@ -369,6 +378,34 @@ def get_total_counts_crowd_mode(start_ts, end_ts, mode):
 
     return count
 
+def get_video_run_indices(video_name):
+    """
+    Get all run indices for a specific video
+    Returns a list of unique run_index values for the given video
+    """
+    db = Database()
+    try:
+        _, cursor = db.get_connection()
+        
+        query = """
+            SELECT DISTINCT run_index
+            FROM video_analysis 
+            WHERE video_name = ?
+            ORDER BY run_index
+        """
+        
+        cursor.execute(query, (video_name,))
+        results = cursor.fetchall()
+        
+        # Extract run_index values from tuples
+        return [row[0] for row in results if row[0] is not None]
+        
+    except Exception as e:
+        print(f"Error getting video run indices: {e}")
+        return []
+    finally:
+        db.close()
+
 def get_individual_timestamps_filtered(start_timestamp, end_timestamp, filters):
     """
     Get individual timestamps (not grouped) with filters applied
@@ -393,6 +430,10 @@ def get_individual_timestamps_filtered(start_timestamp, end_timestamp, filters):
         if filters['direction']:
             where_conditions.append("direction = ?")
             params.append(filters['direction'])
+            
+        if filters['run_index']:
+            where_conditions.append("run_index = ?")
+            params.append(int(filters['run_index']))
         
         where_clause = " AND ".join(where_conditions)
         
@@ -435,6 +476,10 @@ def get_total_counts_filtered(start_timestamp, end_timestamp, filters):
         if filters['direction']:
             where_conditions.append("direction = ?")
             params.append(filters['direction'])
+            
+        if filters['run_index']:
+            where_conditions.append("run_index = ?")
+            params.append(int(filters['run_index']))
         
         where_clause = " AND ".join(where_conditions)
         
@@ -473,6 +518,10 @@ def get_grouped_counts_filtered(start_timestamp, end_timestamp, groupby, filters
         if filters['direction']:
             where_conditions.append("direction = ?")
             params.append(filters['direction'])
+            
+        if filters['run_index']:
+            where_conditions.append("run_index = ?")
+            params.append(int(filters['run_index']))
         
         where_clause = " AND ".join(where_conditions)
         
