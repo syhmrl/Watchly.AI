@@ -4,11 +4,12 @@ import matplotlib.dates as mdates
 import VideoProcessor
 import os
 import config
+import csv
 
 from datetime import datetime, date, timedelta
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from tkcalendar import DateEntry
-from tkinter import messagebox, ttk
+from tkinter import messagebox, ttk, filedialog
 from database_utils import *
 from EmbeddedFrame import EmbeddedFrame
 from thread_manager import start_threads, thread_controller
@@ -36,7 +37,7 @@ def show_selection_window():
     # Create the main window
     sel = tk.Tk()
     sel.title("Crowd Monitoring System and Analysis")
-    sel.geometry("600x500")
+    sel.geometry("600x520")
     
     # Add padding and styling
     content_frame = tk.Frame(sel, padx=20, pady=20)
@@ -52,6 +53,24 @@ def show_selection_window():
                   value="LINE", command=lambda: on_count_type_change("LINE")).pack(anchor='w')
     tk.Radiobutton(count_type_frame, text="Crowd Count (Person in Frame)", variable=count_type_var, 
                   value="CROWD", command=lambda: on_count_type_change("CROWD")).pack(anchor='w')
+    
+    # Add description labels
+    desc_frame = tk.Frame(content_frame)
+    desc_frame.pack(fill=tk.X, pady=(0, 10))
+    
+    desc_text = tk.Text(desc_frame, height=4, wrap=tk.WORD, state=tk.DISABLED)
+    desc_text.pack(fill=tk.X)
+    
+    def update_description(mode):
+        desc_text.config(state=tk.NORMAL)
+        desc_text.delete(1.0, tk.END)
+        if mode == "LINE":
+            desc_text.insert(tk.END, "Line Crossing Mode: Count people crossing a virtual line in the middle of the frame. "
+                                   "Tracks entries and exits based on movement direction across the line.")
+        else:
+            desc_text.insert(tk.END, "Crowd Monitoring Mode: Count people present within a defined region of interest (ROI). "
+                                   "Tracks total people currently in the monitored area.")
+        desc_text.config(state=tk.DISABLED)
     
     # Mode selection
     mode_frame = tk.LabelFrame(content_frame, text="Select Mode", padx=10, pady=10)
@@ -144,7 +163,11 @@ def show_selection_window():
     def on_count_type_change(mode):
         global COUNT_MODE
         COUNT_MODE = mode
-
+        update_description(mode)
+        
+    # Initialize description
+    update_description("LINE")
+    
     # Initialize count for custom date range
     def init_custom_counts():
         global enter_count, exit_count, total_enter_count, total_exit_count, crowd_count, total_crowd_count
@@ -242,15 +265,6 @@ def show_selection_window():
         source_combo = ttk.Combobox(source_frame, textvariable=source_var, state="readonly", width=15)
         source_combo.grid(row=0, column=1, padx=5)
         
-        # Run Index selection (initially hidden)
-        run_index_frame = tk.Frame(filter_frame)
-        
-        run_index_label = tk.Label(run_index_frame, text="Run:")
-        run_index_label.grid(row=0, column=0, sticky='w')
-        run_index_var = tk.StringVar(value="all")
-        run_index_combo = ttk.Combobox(run_index_frame, textvariable=run_index_var, state="readonly", width=10)
-        run_index_combo.grid(row=0, column=1, padx=5)
-        
          # Direction selection
         direction_frame = tk.Frame(filter_frame)
         direction_frame.grid(row=0, column=2, padx=10, pady=5, sticky='w')
@@ -260,6 +274,16 @@ def show_selection_window():
         direction_combo = ttk.Combobox(direction_frame, textvariable=direction_var, 
                                      values=["both", "enter", "exit"], state="readonly", width=10)
         direction_combo.grid(row=0, column=1, padx=5)
+        
+        # Run Index selection (initially hidden)
+        run_index_frame = tk.Frame(filter_frame)
+        run_index_frame.grid(row=0, column=3, padx=10, pady=5, sticky='w')
+        
+        tk.Label(run_index_frame, text="Run:").grid(row=0, column=0, sticky='w')
+        run_index_var = tk.StringVar(value="all")
+        run_index_combo = ttk.Combobox(run_index_frame, textvariable=run_index_var, state="readonly", width=10)
+        run_index_combo.grid(row=0, column=1, padx=5)
+        run_index_frame.grid_forget()
         
         # Date and time selection
         date_time_frame = tk.Frame(control_frame)
@@ -324,15 +348,12 @@ def show_selection_window():
         def toggle_run_index_visibility():
             current_mode = mode_var.get()
             current_source = source_var.get()
-            print("mode " + current_mode)
-            print("source " + current_source)
             
             if current_mode == "video" and current_source != "all":
-                print("Should be display grid")
-                run_index_frame.grid(row=0, column=2, padx=10, pady=5, sticky='w')
+                run_index_frame.grid(row=0, column=3, padx=10, pady=5, sticky='w')
                 populate_run_indices()
             else:
-                run_index_frame.grid_remove()
+                run_index_frame.grid_forget()
                 run_index_var.set("all")
         
         # Function to populate source dropdown based on mode
@@ -366,10 +387,21 @@ def show_selection_window():
             current_source = source_var.get()
             
             if current_mode == "video" and current_source != "all":
+                populate_run_indices()
                 set_video_datetime(current_source)
                 
             # Show/hide run index combobox based on selection
             toggle_run_index_visibility()
+            
+        # Function to handle run index change and update timestamps
+        def on_run_index_change(*args):
+            current_mode = mode_var.get()
+            current_source = source_var.get()
+            current_run_index = run_index_var.get()
+            
+            if current_mode == "video" and current_source != "all" and current_run_index != "all":
+                set_video_datetime_by_run(current_source, int(current_run_index))
+
         
         # Function to reset datetime to default (today)
         def reset_to_default_datetime():
@@ -413,10 +445,36 @@ def show_selection_window():
                     end_sec.insert(0, f"{end_dt.second:02d}")
             except Exception as e:
                 print(f"Error setting video datetime: {e}")
-                
+        
+        # Updated function to set datetime based on video timestamps and run index
+        def set_video_datetime_by_run(video_name, run_index):
+            try:
+                start_dt, end_dt = get_video_timestamps_by_run(video_name, run_index)
+                if start_dt and end_dt:
+                    # Set start datetime
+                    start_date_entry.set_date(start_dt.date())
+                    start_hour.delete(0, tk.END)
+                    start_hour.insert(0, f"{start_dt.hour:02d}")
+                    start_min.delete(0, tk.END)
+                    start_min.insert(0, f"{start_dt.minute:02d}")
+                    start_sec.delete(0, tk.END)
+                    start_sec.insert(0, f"{start_dt.second:02d}")
+                    
+                    # Set end datetime
+                    end_date_entry.set_date(end_dt.date())
+                    end_hour.delete(0, tk.END)
+                    end_hour.insert(0, f"{end_dt.hour:02d}")
+                    end_min.delete(0, tk.END)
+                    end_min.insert(0, f"{end_dt.minute:02d}")
+                    end_sec.delete(0, tk.END)
+                    end_sec.insert(0, f"{end_dt.second:02d}")
+            except Exception as e:
+                print(f"Error setting video datetime by run: {e}")
+
         # Bind events to dropdowns
         mode_var.trace_add('write', on_mode_change)
         source_var.trace_add('write', on_source_change)
+        run_index_var.trace_add('write', on_run_index_change)
         # Populate sources on window open
         populate_sources()
         
@@ -435,23 +493,44 @@ def show_selection_window():
         visual_frame = tk.LabelFrame(control_frame, text="Visualization", padx=5, pady=5)
         visual_frame.pack(fill=tk.X, pady=10)
         
-        visual_var = tk.StringVar(value="bar")
+        visual_var = tk.StringVar(value="area")
         
-        tk.Radiobutton(visual_frame, text="Bar Chart", variable=visual_var, value="bar").grid(row=0, column=0, padx=10)
-        tk.Radiobutton(visual_frame, text="Line Chart", variable=visual_var, value="line").grid(row=0, column=1, padx=10)
+        # tk.Radiobutton(visual_frame, text="Bar Chart", variable=visual_var, value="bar").grid(row=0, column=0, padx=10)
+        # tk.Radiobutton(visual_frame, text="Line Chart", variable=visual_var, value="line").grid(row=0, column=1, padx=10)
         tk.Radiobutton(visual_frame, text="Area Chart", variable=visual_var, value="area").grid(row=0, column=2, padx=10)
+        
+        # Validated fetch function
+        def validated_fetch_data():
+            is_valid, error_msg = validate_datetime_range(
+                start_date_entry, start_hour, start_min, start_sec,
+                end_date_entry, end_hour, end_min, end_sec
+            )
+            
+            if not is_valid:
+                show_validation_error(error_msg)
+                return
+            
+            # If validation passes, proceed with data fetching
+            # You can pass the validated datetime objects to your fetch function
+            try:
+                # Call your actual fetch_data function with validated datetime objects
+                fetch_data(
+                    start_date_entry, start_hour, start_min, start_sec,
+                    end_date_entry, end_hour, end_min, end_sec,
+                    resolution_var.get(), visual_var.get(),
+                    mode_var.get(), source_var.get(), direction_var.get(),
+                    result_label, graph_frame, run_index_var.get()
+                )
+                
+            except Exception as e:
+                show_validation_error(f"Error processing dates: {str(e)}")
+        
         
         # Fetch button
         fetch_button = tk.Button(
             control_frame, 
             text="Fetch Data", 
-            command=lambda: fetch_data(
-                start_date_entry, start_hour, start_min, start_sec,
-                end_date_entry, end_hour, end_min, end_sec,
-                resolution_var.get(), visual_var.get(),
-                mode_var.get(), source_var.get(), direction_var.get(),
-                result_label, graph_frame, run_index_var.get()
-            ),
+            command=validated_fetch_data,
             bg="#4CAF50", fg="white", padx=10, pady=5
         )
         fetch_button.pack(pady=10)
@@ -498,12 +577,24 @@ def show_selection_window():
         start_timestamp = f"{start_date}T{start_time}"
         end_timestamp = f"{end_date}T{end_time}"
         
+        # For video mode with specific run_index, get the actual timestamps from video_analysis
+        if mode_type == "video" and source != "all" and run_index != "all":
+            try:
+                # Get the specific timestamps for this video and run
+                video_start_dt, video_end_dt = get_video_timestamps_by_run(source, int(run_index))
+                if video_start_dt and video_end_dt:
+                    # Use the video analysis timestamps instead of user-selected ones
+                    start_timestamp = video_start_dt.strftime('%Y-%m-%dT%H:%M:%S')
+                    end_timestamp = video_end_dt.strftime('%Y-%m-%dT%H:%M:%S')
+            except Exception as e:
+                print(f"Error getting video timestamps for filtering: {e}")
+        
+        
         # Apply filters
         filters = {
             'mode_type': mode_type if mode_type != 'all' else None,
             'source': source if source != 'all' else None,
-            'direction': direction if direction != 'both' else None,
-            'run_index': run_index if run_index != 'all' else None
+            'direction': direction if direction != 'both' else None
         }
         
         count = get_total_counts_filtered(start_timestamp, end_timestamp, filters)
@@ -544,8 +635,6 @@ def show_selection_window():
             filter_info.append(f"Source: {filters['source']}")
         if filters['direction']:
             filter_info.append(f"Direction: {filters['direction']}")
-        if filters['run_index']:
-            filter_info.append(f"Run: {filters['run_index']}")
         
         if filter_info:
             title += f" ({', '.join(filter_info)})"
@@ -676,27 +765,7 @@ def show_selection_window():
         # Create figure
         fig, ax = plt.subplots(figsize=(12, 6))
         
-        if visualization == "bar":
-            bars = ax.bar(time_periods, counts, width=0.8)
-            
-            # Color bars differently for zero values (gaps)
-            for i, (bar, count) in enumerate(zip(bars, counts)):
-                if count == 0:
-                    bar.set_color('lightgray')
-                    bar.set_alpha(0.3)
-                else:
-                    bar.set_color('steelblue')
-                    
-        elif visualization == "line":
-            # ax.plot(time_periods, counts, linestyle='-', linewidth=1)
-            # For line charts, use None for gaps to create actual breaks in the line
-            display_counts = [count if count > 0 else None for count in counts]
-            ax.plot(time_periods, display_counts, linestyle='-', linewidth=2, marker='o', markersize=3)
-        
-        elif visualization == "area":
-            # ax.fill_between(time_periods, counts, alpha=0.4)
-            # ax.plot(time_periods, counts, linestyle='-', linewidth=1)
-            # For area charts, use 0 for gaps but make them visible
+        if visualization == "area":
             ax.fill_between(time_periods, counts, alpha=0.4, step='mid')
             ax.plot(time_periods, counts, linestyle='-', linewidth=1, marker='o', markersize=2)
         
@@ -793,6 +862,21 @@ def show_selection_window():
         # Close the matplotlib figure to prevent memory leaks
         plt.close(fig)
 
+    # Validation function for this window
+    def validate_and_proceed():
+        is_valid, error_msg = validate_datetime_range(
+            start_date_entry, start_hour, start_min, start_sec,
+            end_date_entry, end_hour, end_min, end_sec
+        )
+        
+        if not is_valid:
+            show_validation_error(error_msg)
+            return False
+        
+        # If validation passes, proceed with the action
+        on_start()
+        return True
+    
     # Handle start button click
     def on_start():
         global enter_count, exit_count, total_enter_count, total_exit_count, crowd_count, total_crowd_count
@@ -835,12 +919,17 @@ def show_selection_window():
             except tk.TclError: show_selection_window()
         
         # Create a new window for the detector UI
+        if COUNT_MODE == "LINE":
+            window_title = "Line Crossing Detection"
+        else:
+            window_title = "Crowd Detection"
+            
+        # Create a new window for the detector UI
         crowd_win = tk.Toplevel(sel)
-        crowd_win.title("Crowd Detection")
+        crowd_win.title(window_title)
         # Pass either source_index=0 or loop for multiple sources
-        app = EmbeddedFrame(crowd_win, source_index=0, on_close=on_counting_close)
+        app = EmbeddedFrame(crowd_win, source_index=0, mode=COUNT_MODE, on_close=on_counting_close)
         
-
     # Add buttons to selection window
     button_frame = tk.Frame(content_frame)
     button_frame.pack(fill=tk.X, pady=10)
@@ -856,7 +945,7 @@ def show_selection_window():
     start_button = tk.Button(
         button_frame, 
         text="Start", 
-        command=on_start,
+        command=validate_and_proceed,
         width=15
     )
     start_button.pack(side=tk.RIGHT, padx=5)
@@ -891,6 +980,51 @@ def show_selection_window():
     
     # Start the main loop for selection window
     sel.mainloop()
+    
+def validate_datetime_range(start_date_entry, start_hour, start_min, start_sec,
+                           end_date_entry, end_hour, end_min, end_sec):
+    """
+    Validate that start datetime is before end datetime
+    Returns (is_valid, error_message)
+    """
+    try:
+        # Get start date and time
+        start_date = start_date_entry.get_date()
+        start_h = int(start_hour.get())
+        start_m = int(start_min.get())
+        start_s = int(start_sec.get())
+        
+        # Get end date and time
+        end_date = end_date_entry.get_date()
+        end_h = int(end_hour.get())
+        end_m = int(end_min.get())
+        end_s = int(end_sec.get())
+        
+        # Create datetime objects
+        start_datetime = datetime.combine(start_date, datetime.min.time().replace(
+            hour=start_h, minute=start_m, second=start_s))
+        end_datetime = datetime.combine(end_date, datetime.min.time().replace(
+            hour=end_h, minute=end_m, second=end_s))
+        
+        # Validate range
+        if start_datetime >= end_datetime:
+            return False, "Start date/time must be before end date/time"
+        
+        # Check if dates are not in the future (optional)
+        current_datetime = datetime.now() + timedelta(days=1)
+        if end_datetime > current_datetime:
+            return False, "End date/time cannot be in the future"
+        
+        return True, ""
+        
+    except ValueError as e:
+        return False, f"Invalid date/time format: {str(e)}"
+    except Exception as e:
+        return False, f"Validation error: {str(e)}"
+
+def show_validation_error(message):
+    """Show validation error in a message box"""
+    messagebox.showerror("Validation Error", message)
 
 def open_model_setting(sel):
     import tracker_config

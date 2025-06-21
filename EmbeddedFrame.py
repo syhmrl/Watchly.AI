@@ -5,7 +5,7 @@ import time
 
 from PIL import Image, ImageTk
 
-# Your existing modules
+# existing modules
 import config
 import thread_manager
 import VideoProcessor
@@ -13,9 +13,10 @@ import VideoProcessor
 from helpers import *
 
 class EmbeddedFrame:
-    def __init__(self, root, source_index, on_close=None):
+    def __init__(self, root, source_index, mode="CROWD", on_close=None):
         self.on_close = on_close
         self.root = root
+        self.mode = mode
 
         self.source_index = source_index
         self.source_name = f"camera_{source_index}"
@@ -28,6 +29,14 @@ class EmbeddedFrame:
         self.roi_points = None
         self.custom_roi_set = False
         self.roi_window_open = False # Track if ROI window is open
+        
+        # Line Crossing State (for LINE mode)
+        self.crossing_line = None
+        self.line_orientation = "horizontal"  # "horizontal" or "vertical"
+        self.line_y = VideoProcessor.FRAME_HEIGHT // 2  # Default line in middle
+        self.line_x = VideoProcessor.FRAME_WIDTH // 2   # Default vertical line in middle
+        self.track_positions = {}  # track_id -> list of recent positions
+        self.position_history_size = 5
         
         # Load model
         self.model = load_model(config.get_model_name())
@@ -44,6 +53,12 @@ class EmbeddedFrame:
         self.last_seen       = {}    # track_id -> last frame_idx seen
         self.detection_count = {}    # track_id -> consecutive frames seen
         self.frame_idx       = 0
+        
+        # Line crossing specific counters
+        self.entries = 0
+        self.exits = 0
+        self.crossed_ids = set()  # Track IDs that have already crossed to prevent double counting
+
 
         self.min_detection = 20
 
@@ -87,15 +102,27 @@ class EmbeddedFrame:
         self.btn_record = tk.Button(ctrl, text="Start Rec", command=self._toggle_record)
         self.btn_record.pack(side=tk.LEFT, padx=2)
         
-        self.btn_select_roi = tk.Button(ctrl, text="Select ROI", command=self._open_select_roi)
-        self.btn_select_roi.pack(side=tk.LEFT, padx=2)
+        # Mode-specific controls
+        if self.mode == "CROWD":
+            # ROI controls for crowd mode
+            self.btn_select_roi = tk.Button(ctrl, text="Select ROI", command=self._open_select_roi)
+            self.btn_select_roi.pack(side=tk.LEFT, padx=2)
+            
+            self.btn_clear_roi = tk.Button(ctrl, text="Clear ROI", command=self._clear_roi)
+            self.btn_clear_roi.config(state=tk.DISABLED)
+            self.btn_clear_roi.pack(side=tk.LEFT, padx=2)
+            
+            self.btn_new_roi = tk.Button(ctrl, text="Create New ROI", command=self._create_new_roi)
+            self.btn_new_roi.pack(side=tk.LEFT, padx=2)
         
-        self.btn_clear_roi = tk.Button(ctrl, text="Clear ROI", command=self._clear_roi)
-        self.btn_clear_roi.config(state=tk.DISABLED)
-        self.btn_clear_roi.pack(side=tk.LEFT, padx=2)
-        
-        self.btn_new_roi = tk.Button(ctrl, text="Create New ROI", command=self._create_new_roi)
-        self.btn_new_roi.pack(side=tk.LEFT, padx=2)
+        elif self.mode == "LINE":
+            # Line orientation toggle
+            self.btn_toggle_orientation = tk.Button(ctrl, text="Toggle Orientation", command=self._toggle_line_orientation)
+            self.btn_toggle_orientation.pack(side=tk.LEFT, padx=2)
+            
+            # Line adjustment controls for line crossing mode
+            self.btn_adjust_line = tk.Button(ctrl, text="Adjust Line", command=self._adjust_crossing_line)
+            self.btn_adjust_line.pack(side=tk.LEFT, padx=2)
 
     def _start_capture_threads(self):
         # Start capture_frames for each defined source
@@ -137,7 +164,13 @@ class EmbeddedFrame:
             
             visual_frame = frame.copy()
             
-            if self.enable_roi and self.enable_visual: cv2.polylines(visual_frame, [self.roi_points], True, (0, 255, 0), 2)
+            # Draw mode-specific overlays
+            if self.mode == "CROWD":
+                if self.enable_roi and self.enable_visual and self.roi_points is not None:
+                    cv2.polylines(visual_frame, [self.roi_points], True, (0, 255, 0), 2)
+            elif self.mode == "LINE":
+                if self.enable_visual:
+                    self._draw_crossing_line(visual_frame)
             
             for result in results:
 
@@ -149,38 +182,17 @@ class EmbeddedFrame:
                         continue
                     
                     coords = box.xyxy[0].tolist()
-                    if self.enable_roi:
-                        if not VideoProcessor.is_in_roi(coords, self.roi_points):
-                            # Skip both count and draw for boxes outside ROI
-                            continue
+                    
+                    # Mode-specific processing
+                    if self.mode == "CROWD":
+                        self._process_crowd_detection(tid, coords, seen_this_frame, visual_frame, box)
+                    elif self.mode == "LINE":
+                        self._process_line_crossing(tid, coords, seen_this_frame, visual_frame, box)
                         
-                    self.last_seen[tid] = self.frame_idx
-                    seen_this_frame.add(tid)
-                    
-                    # Increment detection counter for this ID
-                    self.detection_count[tid] = self.detection_count.get(tid, 0) + 1
-                    
-                    if  tid not in self.counted_ids and self.detection_count[tid] >= self.min_detection:
-                        self.counted_ids.add(tid)
-                        VideoProcessor.crowd_count[self.source_index] += 1
-
-                        VideoProcessor.count_to_db(self.source_name, tid, 'enter', 'crowd')
-
-                    # Add met the min detection threshold
-                    if self.detection_count[tid] >= self.min_detection:
-                        self.temp_count.add(tid)
-
-                    # Draw bounding box and ID
-                    color = VideoProcessor.random_colors[tid % len(VideoProcessor.random_colors)]
-                    if self.enable_visual:
-                        x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
-                        cv2.rectangle(visual_frame, (x1, y1), (x2, y2), color, 2)
-                        cv2.putText(visual_frame, f"ID: {tid}", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
-
             # Clean up tracks that haven't been seen recently
             cleanup_stale(self.last_seen, self.frame_idx, self.detection_count)
 
-            # Remove the temp count if the person is out of frame for 20 frames
+            # Remove the temp count if the person is out of frame for 10 frames
             
             for track_id in list(self.temp_count):
                 if self.frame_idx - self.last_seen[track_id] > 10:
@@ -191,8 +203,12 @@ class EmbeddedFrame:
 
             if self.enable_visual:
                 VideoProcessor.display_fps(avg_frame_rate, visual_frame)
-                VideoProcessor.display_crowd_count(VideoProcessor.crowd_count[self.source_index], visual_frame)
-                VideoProcessor.display_inframe_count(len(self.temp_count), visual_frame)
+                
+                if self.mode == "CROWD":
+                    VideoProcessor.display_crowd_count(VideoProcessor.crowd_count[self.source_index], visual_frame)
+                    VideoProcessor.display_inframe_count(len(self.temp_count), visual_frame)
+                elif self.mode == "LINE":
+                    self._display_line_crossing_counts(visual_frame)
 
             # if recording, write the raw processed frame
             if self.enable_recording and self.writer:
@@ -207,6 +223,180 @@ class EmbeddedFrame:
 
         # Schedule next frame update
         self.root.after(30, self._update_loop)
+        
+    
+        
+    def _process_crowd_detection(self, tid, coords, seen_this_frame, visual_frame, box):
+        """Process detection for crowd monitoring mode"""
+        # ROI filtering for crowd mode
+        if self.enable_roi and self.roi_points is not None:
+            if not VideoProcessor.is_in_roi(coords, self.roi_points):
+                return  # Skip detections outside ROI
+                
+        self.last_seen[tid] = self.frame_idx
+        seen_this_frame.add(tid)
+        
+        # Increment detection counter for this ID
+        self.detection_count[tid] = self.detection_count.get(tid, 0) + 1
+        
+        if tid not in self.counted_ids and self.detection_count[tid] >= self.min_detection:
+            self.counted_ids.add(tid)
+            VideoProcessor.crowd_count[self.source_index] += 1
+            VideoProcessor.count_to_db(self.source_name, tid, 'enter', 'crowd')
+
+        # Add to temp count if met the min detection threshold
+        if self.detection_count[tid] >= self.min_detection:
+            self.temp_count.add(tid)
+
+        # Draw bounding box and ID
+        self._draw_detection(visual_frame, box, tid)
+        
+    def _draw_crossing_line(self, visual_frame):
+        """Draw the crossing line based on current orientation"""
+        if self.line_orientation == "horizontal":
+            # Draw horizontal line
+            cv2.line(visual_frame, (0, self.line_y), (VideoProcessor.FRAME_WIDTH, self.line_y), (0, 255, 255), 3)
+            cv2.putText(visual_frame, "CROSSING LINE (HORIZONTAL)", (10, self.line_y - 10), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+        else:  # vertical
+            # Draw vertical line
+            cv2.line(visual_frame, (self.line_x, 0), (self.line_x, VideoProcessor.FRAME_HEIGHT), (0, 255, 255), 3)
+            cv2.putText(visual_frame, "CROSSING LINE (VERTICAL)", (self.line_x + 10, 30), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+        
+        
+    def _process_line_crossing(self, tid, coords, seen_this_frame, visual_frame, box):
+        """Process detection for line crossing mode"""
+        self.last_seen[tid] = self.frame_idx
+        seen_this_frame.add(tid)
+        
+        # Get center bottom point of bounding box (person's feet)
+        x1, y1, x2, y2 = coords
+        center_x = int((x1 + x2) / 2)
+        center_y = int(y2)  # Bottom of bounding box
+        
+        # Store position history
+        if tid not in self.track_positions:
+            self.track_positions[tid] = []
+        
+        self.track_positions[tid].append((center_x, center_y, self.frame_idx))
+        
+        # Keep only recent positions
+        if len(self.track_positions[tid]) > self.position_history_size:
+            self.track_positions[tid].pop(0)
+        
+        # Check for line crossing
+        if len(self.track_positions[tid]) >= 2 and tid not in self.crossed_ids:
+            self._check_line_crossing(tid)
+        
+        # Draw bounding box and ID
+        self._draw_detection(visual_frame, box, tid)
+        
+        # Draw trajectory
+        if self.enable_visual and len(self.track_positions[tid]) > 1:
+            points = [(pos[0], pos[1]) for pos in self.track_positions[tid]]
+            for i in range(len(points) - 1):
+                cv2.line(visual_frame, points[i], points[i+1], (255, 0, 255), 2)
+                
+    def _check_line_crossing(self, tid):
+        """Check if a track has crossed the line and determine direction"""
+        positions = self.track_positions[tid]
+        
+        # Need at least 2 positions to determine crossing
+        if len(positions) < 2:
+            return
+            
+        # Check if the track crossed the line
+        prev_pos = positions[-2]
+        curr_pos = positions[-1]
+        
+        if self.line_orientation == "horizontal":
+            prev_coord = prev_pos[1]  # Y coordinate
+            curr_coord = curr_pos[1]  # Y coordinate
+            line_coord = self.line_y
+            
+            # Check if horizontal line was crossed
+            if (prev_coord < line_coord < curr_coord) or (prev_coord > line_coord > curr_coord):
+                if prev_coord < line_coord and curr_coord > line_coord:
+                    # Crossed from top to bottom (entering)
+                    direction = 'enter'
+                    self.entries += 1
+                else:
+                    # Crossed from bottom to top (exiting)
+                    direction = 'exit'  
+                    self.exits += 1
+                
+                self._handle_crossing(tid, direction)
+                
+        else:  # vertical orientation
+            prev_coord = prev_pos[0]  # X coordinate
+            curr_coord = curr_pos[0]  # X coordinate
+            line_coord = self.line_x
+            
+            # Check if vertical line was crossed
+            if (prev_coord < line_coord < curr_coord) or (prev_coord > line_coord > curr_coord):
+                if prev_coord < line_coord and curr_coord > line_coord:
+                    # Crossed from left to right (entering)
+                    direction = 'enter'
+                    self.entries += 1
+                else:
+                    # Crossed from right to left (exiting)
+                    direction = 'exit'
+                    self.exits += 1
+                
+                self._handle_crossing(tid, direction)
+                
+    def _handle_crossing(self, tid, direction):
+        """Handle the crossing event"""
+        # Mark as crossed to prevent double counting
+        self.crossed_ids.add(tid)
+        
+        # Log to database
+        VideoProcessor.count_to_db(self.source_name, tid, direction, 'line')
+        
+        orientation_str = self.line_orientation.upper()
+        print(f"Track {tid} crossed {orientation_str} line: {direction} (Entries: {self.entries}, Exits: {self.exits})")
+
+
+    def _draw_detection(self, visual_frame, box, tid):
+        """Draw bounding box and ID for a detection"""
+        if not self.enable_visual:
+            return
+            
+        color = VideoProcessor.random_colors[tid % len(VideoProcessor.random_colors)]
+        x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
+        cv2.rectangle(visual_frame, (x1, y1), (x2, y2), color, 2)
+        cv2.putText(visual_frame, f"ID: {tid}", (x1, y1 - 10), 
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+    
+    def _display_line_crossing_counts(self, frame):
+        """Display line crossing statistics on frame"""
+        # Current count (entries - exits)
+        current_count = self.entries - self.exits
+        
+        # Display orientation
+        orientation_text = f"Mode: {self.line_orientation.upper()}"
+        cv2.putText(frame, orientation_text, (10, 120), 
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2)
+        
+        
+        # Display statistics
+        cv2.putText(frame, f"Entries: {self.entries}", (10, 30), 
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+        cv2.putText(frame, f"Exits: {self.exits}", (10, 60), 
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+        cv2.putText(frame, f"Current: {current_count}", (10, 90), 
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+        
+    def _toggle_line_orientation(self):
+        """Toggle between horizontal and vertical line orientation"""
+        if self.line_orientation == "horizontal":
+            self.line_orientation = "vertical"
+        else:
+            self.line_orientation = "horizontal"
+        
+        print(f"Line orientation changed to: {self.line_orientation}")
+
 
     def stop(self):
         # Signal threads to stop
@@ -250,9 +440,48 @@ class EmbeddedFrame:
                 self.writer = None
             self.btn_record.config(text="Record")
             print("Recording stopped", self.source_name)
+            
+    def _adjust_crossing_line(self):
+        """Allow user to adjust the crossing line position"""
+        # Create adjustment window
+        adjust_win = tk.Toplevel(self.root)
+        adjust_win.title("Adjust Crossing Line")
+        adjust_win.geometry("400x200")
+        adjust_win.transient(self.root)
+        
+        tk.Label(adjust_win, text=f"Adjust {self.line_orientation} line position:").pack(pady=10)
+        
+        if self.line_orientation == "horizontal":
+            # Adjust Y coordinate for horizontal line
+            line_var = tk.IntVar(value=self.line_y)
+            scale = tk.Scale(adjust_win, from_=50, to=VideoProcessor.FRAME_HEIGHT-50, 
+                            orient=tk.HORIZONTAL, variable=line_var, length=350,
+                            label="Y Position")
+            scale.pack(pady=10)
+            
+            def apply_changes():
+                self.line_y = line_var.get()
+                adjust_win.destroy()
+                
+        else:  # vertical
+            # Adjust X coordinate for vertical line
+            line_var = tk.IntVar(value=self.line_x)
+            scale = tk.Scale(adjust_win, from_=50, to=VideoProcessor.FRAME_WIDTH-50, 
+                            orient=tk.HORIZONTAL, variable=line_var, length=350,
+                            label="X Position")
+            scale.pack(pady=10)
+            
+            def apply_changes():
+                self.line_x = line_var.get()
+                adjust_win.destroy()
+        
+        tk.Button(adjust_win, text="Apply", command=apply_changes).pack(pady=10)
 
     def _open_select_roi(self):
-        # window to choose from saved ROIs
+        """Open ROI selection window (crowd mode only)"""
+        if self.mode != "CROWD":
+            return
+        
         roi_defs = config.get_roi_values()
         names = list(roi_defs.keys())
         
@@ -296,7 +525,10 @@ class EmbeddedFrame:
         win.protocol("WM_DELETE_WINDOW", on_window_close)
         
     def _clear_roi(self):
-        # reset to full frame
+        """Clear ROI (crowd mode only)"""
+        if self.mode != "CROWD":
+            return
+        
         VideoProcessor.reset_roi(self.source_index)
         self.current_roi_name = None
         self.enable_roi = False
@@ -305,6 +537,10 @@ class EmbeddedFrame:
         
     def _create_new_roi(self):
         """Create a new ROI by drawing on the current frame"""
+        
+        if self.mode != "CROWD":
+            return
+        
         # Reset any existing temp ROI points
         VideoProcessor.temp_roi = []
         VideoProcessor.roi_points = []
@@ -385,7 +621,7 @@ class EmbeddedFrame:
                 cv2.destroyWindow(win_name)
             except:
                 pass
-            VideoProcessor.temp_roi = []
+            # VideoProcessor.temp_roi = []
             VideoProcessor.roi_points = []
             VideoProcessor.drawing = False
             self.btn_new_roi.config(state=tk.NORMAL)
@@ -420,9 +656,6 @@ class EmbeddedFrame:
         
         error_label = tk.Label(name_window, text="", fg="red", font=("Arial", 8))
         error_label.pack()
-        
-        button_frame = tk.Frame(name_window)
-        button_frame.pack(pady=10)
         
         def save_roi():
             roi_name = name_var.get().strip()
@@ -479,11 +712,10 @@ class EmbeddedFrame:
             self.btn_new_roi.config(state=tk.NORMAL)
             name_window.destroy()
         
-        # Handle Enter key in entry field
-        def on_enter(event):
-            save_roi()
+        name_entry.bind('<Return>', lambda e: save_roi())
         
-        name_entry.bind('<Return>', on_enter)
+        button_frame = tk.Frame(name_window)
+        button_frame.pack(pady=10)
         
         # Buttons
         tk.Button(button_frame, text="Save", command=save_roi, width=10).pack(side=tk.LEFT, padx=5)

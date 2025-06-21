@@ -297,16 +297,18 @@ def get_video_names():
         
 def get_video_timestamps(video_name):
     """
-    Get start and end timestamps for a specific video from video_analysis table
+    Get start and end timestamps for a specific video from video_analysis table (latest run)
     Returns tuple of (start_datetime, end_datetime)
     """
     db = Database()
     try:
         _, cursor = db.get_connection()
         cursor.execute("""
-            SELECT start_timestamp as start_time, end_timestamp as end_time 
+            SELECT start_timestamp, end_timestamp 
             FROM video_analysis 
             WHERE video_name = ?
+            ORDER BY run_index DESC
+            LIMIT 1
         """, (video_name,))
         
         result = cursor.fetchone()
@@ -323,35 +325,33 @@ def get_video_timestamps(video_name):
     finally:
         db.close()
         
-
-
-def get_total_counts(start_ts, end_ts):
+def get_video_timestamps_by_run(video_name, run_index):
+    """
+    Get start and end timestamps for a specific video and run index from video_analysis table
+    Returns tuple of (start_datetime, end_datetime)
+    """
     db = Database()
-    _, cursor = db.get_connection()
-
-    # Get total count
-    cursor.execute("SELECT COUNT(*) FROM crossing_events WHERE direction = 'enter' AND timestamp BETWEEN ? AND ?", 
-                    (start_ts, end_ts))
-    count = cursor.fetchone()[0]
-
-    return count
-
-def get_grouped_counts(start_ts, end_ts, groupby):
-    db = Database()
-    _, cursor = db.get_connection()
-
-    query = f"""
-            SELECT {groupby} as timeperiod, COUNT(*) 
-            FROM crossing_events 
-            WHERE direction = 'enter' AND timestamp BETWEEN ? AND ? 
-            GROUP BY timeperiod
-            ORDER BY timeperiod
-        """
+    try:
+        _, cursor = db.get_connection()
+        cursor.execute("""
+            SELECT start_timestamp, end_timestamp 
+            FROM video_analysis 
+            WHERE video_name = ? AND run_index = ?
+        """, (video_name, run_index))
         
-    cursor.execute(query, (start_ts, end_ts))
-    data = cursor.fetchall()
-
-    return data
+        result = cursor.fetchone()
+        if result and result[0] and result[1]:
+            from datetime import datetime
+            # Parse the timestamps - adjust format as needed based on your timestamp format
+            start_dt = datetime.fromisoformat(result[0].replace('T', ' ')) if 'T' in result[0] else datetime.strptime(result[0], '%Y-%m-%d %H:%M:%S')
+            end_dt = datetime.fromisoformat(result[1].replace('T', ' ')) if 'T' in result[1] else datetime.strptime(result[1], '%Y-%m-%d %H:%M:%S')
+            return start_dt, end_dt
+        return None, None
+    except Exception as e:
+        print(f"Error getting video timestamps by run: {e}")
+        return None, None
+    finally:
+        db.close()
         
 def get_total_counts_line_mode(start_ts, end_ts, mode):
     db = Database()
@@ -430,16 +430,12 @@ def get_individual_timestamps_filtered(start_timestamp, end_timestamp, filters):
         if filters['direction']:
             where_conditions.append("direction = ?")
             params.append(filters['direction'])
-            
-        if filters['run_index']:
-            where_conditions.append("run_index = ?")
-            params.append(int(filters['run_index']))
-        
+             
         where_clause = " AND ".join(where_conditions)
         
         query = f"""
             SELECT timestamp
-            FROM crossing_events 
+            FROM crossing_events
             WHERE {where_clause}
             ORDER BY timestamp
         """
@@ -476,10 +472,6 @@ def get_total_counts_filtered(start_timestamp, end_timestamp, filters):
         if filters['direction']:
             where_conditions.append("direction = ?")
             params.append(filters['direction'])
-            
-        if filters['run_index']:
-            where_conditions.append("run_index = ?")
-            params.append(int(filters['run_index']))
         
         where_clause = " AND ".join(where_conditions)
         
@@ -518,10 +510,6 @@ def get_grouped_counts_filtered(start_timestamp, end_timestamp, groupby, filters
         if filters['direction']:
             where_conditions.append("direction = ?")
             params.append(filters['direction'])
-            
-        if filters['run_index']:
-            where_conditions.append("run_index = ?")
-            params.append(int(filters['run_index']))
         
         where_clause = " AND ".join(where_conditions)
         
