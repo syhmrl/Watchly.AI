@@ -24,6 +24,8 @@ total_enter_count = 0
 total_exit_count = 0
 total_crowd_count = 0
 
+current_graph_data = None
+
 def show_selection_window():
     """
     Creates and runs the selection dialog. When 'Start' is clicked,
@@ -227,71 +229,144 @@ def show_selection_window():
 
     # Create and show the query window
     def open_query_window():
+        sel.withdraw()
+        
         query_win = tk.Toplevel(sel)
         query_win.title("Statistic Dashboard")
         query_win.geometry("1000x800")
         query_win.grab_set()  # Make window modal
         
-        # Create frames for better organization
-        control_frame = tk.Frame(query_win, padx=10, pady=10)
-        control_frame.pack(fill=tk.X)
+        # Create main canvas and scrollbar for the entire window
+        main_canvas = tk.Canvas(query_win)
+        scrollbar = ttk.Scrollbar(query_win, orient="vertical", command=main_canvas.yview)
+        scrollable_frame = ttk.Frame(main_canvas)
         
-        result_frame = tk.Frame(query_win, padx=10)
+        # Configure scrolling
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda e: main_canvas.configure(scrollregion=main_canvas.bbox("all"))
+        )
+        
+        canvas_window_id = main_canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        main_canvas.configure(yscrollcommand=scrollbar.set)
+        
+        # Function to resize the scrollable_frame width with the canvas width
+        def on_canvas_configure(event):
+            main_canvas.itemconfig(canvas_window_id, width=event.width)
+            
+        # Bind the function to the canvas's <Configure> event
+        main_canvas.bind("<Configure>", on_canvas_configure)
+        
+        # Pack canvas and scrollbar
+        main_canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+        
+        # Enable mouse wheel scrolling
+        def _on_mousewheel(event):
+            main_canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+        
+        def _bind_mousewheel(event):
+            main_canvas.bind_all("<MouseWheel>", _on_mousewheel)
+        
+        def _unbind_mousewheel(event):
+            main_canvas.unbind_all("<MouseWheel>")
+        
+        main_canvas.bind('<Enter>', _bind_mousewheel)
+        main_canvas.bind('<Leave>', _unbind_mousewheel)
+        
+        # Create frames for better organization
+        control_frame = tk.Frame(scrollable_frame, padx=10, pady=10)
+        control_frame.pack(fill=tk.BOTH, expand=True)
+        
+        result_frame = tk.Frame(scrollable_frame, padx=10)
         result_frame.pack(fill=tk.X)
         
-        graph_frame = tk.Frame(query_win, padx=10, pady=10)
-        graph_frame.pack(fill=tk.BOTH, expand=True)
+        # Limit the graph frame height so it doesn't expand infinitely
+        graph_frame = tk.Frame(scrollable_frame, padx=10, pady=10, height=500)
+        graph_frame.pack(fill=tk.X, pady=10)
+        graph_frame.pack_propagate(False)  # Prevent frame from shrinking
+    
+        
+        download_button_frame = tk.Frame(scrollable_frame, bg="#f0f0f0", height=60)
+        download_button_frame.pack(fill='x', padx=10, pady=10)
+        download_button_frame.pack_propagate(False)  # Maintain fixed height
+        
+        # Initialize empty button frame with placeholder
+        placeholder_label = tk.Label(
+            download_button_frame,
+            text="Download options will appear here after fetching data",
+            font=("Arial", 9),
+            fg="#666666",
+            bg="#f0f0f0"
+        )
+        placeholder_label.pack(pady=15)
         
         # Filtering options
         filter_frame = tk.LabelFrame(control_frame, text="Filters", padx=10, pady=10)
         filter_frame.pack(fill=tk.X, pady=10)
         
+        # Configure column weights for filter_frame to distribute space evenly
+        filter_frame.grid_columnconfigure(0, weight=1)
+        filter_frame.grid_columnconfigure(1, weight=1)
+        filter_frame.grid_columnconfigure(2, weight=1)
+        filter_frame.grid_columnconfigure(3, weight=1)
+        
         # Mode selection
         mode_frame = tk.Frame(filter_frame)
-        mode_frame.grid(row=0, column=0, padx=10, pady=5, sticky='w')
+        mode_frame.grid(row=0, column=0, padx=10, pady=5, sticky='ew')
         
         tk.Label(mode_frame, text="Mode:").grid(row=0, column=0, sticky='w')
         mode_var = tk.StringVar(value="all")
         mode_combo = ttk.Combobox(mode_frame, textvariable=mode_var, values=["all", "crowd", "video"], 
                                  state="readonly", width=10)
-        mode_combo.grid(row=0, column=1, padx=5)
+        mode_combo.grid(row=0, column=1, padx=5, sticky='ew')
+        mode_frame.grid_columnconfigure(1, weight=1)
         
         # Source selection
         source_frame = tk.Frame(filter_frame)
-        source_frame.grid(row=0, column=1, padx=10, pady=5, sticky='w')
+        source_frame.grid(row=0, column=1, padx=10, pady=5, sticky='ew')  # Changed to 'ew'
         
         tk.Label(source_frame, text="Source:").grid(row=0, column=0, sticky='w')
         source_var = tk.StringVar(value="all")
         source_combo = ttk.Combobox(source_frame, textvariable=source_var, state="readonly", width=15)
-        source_combo.grid(row=0, column=1, padx=5)
+        source_combo.grid(row=0, column=1, padx=5, sticky='ew')
+        source_frame.grid_columnconfigure(1, weight=1)
+    
         
-         # Direction selection
+        # Direction selection
         direction_frame = tk.Frame(filter_frame)
-        direction_frame.grid(row=0, column=2, padx=10, pady=5, sticky='w')
+        direction_frame.grid(row=0, column=2, padx=10, pady=5, sticky='ew')
         
         tk.Label(direction_frame, text="Direction:").grid(row=0, column=0, sticky='w')
         direction_var = tk.StringVar(value="both")
         direction_combo = ttk.Combobox(direction_frame, textvariable=direction_var, 
-                                     values=["both", "enter", "exit"], state="readonly", width=10)
-        direction_combo.grid(row=0, column=1, padx=5)
+                                    values=["both", "enter", "exit"], state="readonly", width=10)
+        direction_combo.grid(row=0, column=1, padx=5, sticky='ew')
+        direction_frame.grid_columnconfigure(1, weight=1)  
+    
         
         # Run Index selection (initially hidden)
         run_index_frame = tk.Frame(filter_frame)
-        run_index_frame.grid(row=0, column=3, padx=10, pady=5, sticky='w')
+        run_index_frame.grid(row=0, column=3, padx=10, pady=5, sticky='ew')
         
         tk.Label(run_index_frame, text="Run:").grid(row=0, column=0, sticky='w')
         run_index_var = tk.StringVar(value="all")
         run_index_combo = ttk.Combobox(run_index_frame, textvariable=run_index_var, state="readonly", width=10)
-        run_index_combo.grid(row=0, column=1, padx=5)
+        run_index_combo.grid(row=0, column=1, padx=5, sticky='ew')
+        run_index_frame.grid_columnconfigure(1, weight=1) 
         run_index_frame.grid_forget()
         
         # Date and time selection
         date_time_frame = tk.Frame(control_frame)
-        date_time_frame.pack(fill=tk.X)
+        date_time_frame.pack(fill=tk.X, pady=10)
+        
+        # Configure column weights for date_time_frame
+        date_time_frame.grid_columnconfigure(0, weight=1)
+        date_time_frame.grid_columnconfigure(1, weight=1)
         
         # Start date/time
         start_frame = tk.LabelFrame(date_time_frame, text="Start", padx=5, pady=5)
-        start_frame.grid(row=0, column=0, padx=10, pady=5, sticky='w')
+        start_frame.grid(row=0, column=0, padx=10, pady=5, sticky='ew')
         
         start_date_entry = DateEntry(start_frame, date_pattern='yyyy-MM-dd')
         start_date_entry.grid(row=0, column=0, padx=5, pady=5)
@@ -310,7 +385,7 @@ def show_selection_window():
         
         # End date/time
         end_frame = tk.LabelFrame(date_time_frame, text="End", padx=5, pady=5)
-        end_frame.grid(row=0, column=1, padx=10, pady=5, sticky='w')
+        end_frame.grid(row=0, column=1, padx=10, pady=5, sticky='ew')
         
         end_date_entry = DateEntry(end_frame, date_pattern='yyyy-MM-dd')
         end_date_entry.grid(row=0, column=0, padx=5, pady=5)
@@ -350,7 +425,7 @@ def show_selection_window():
             current_source = source_var.get()
             
             if current_mode == "video" and current_source != "all":
-                run_index_frame.grid(row=0, column=3, padx=10, pady=5, sticky='w')
+                run_index_frame.grid(row=0, column=3, padx=10, pady=5, sticky='ew')
                 populate_run_indices()
             else:
                 run_index_frame.grid_forget()
@@ -402,7 +477,6 @@ def show_selection_window():
             if current_mode == "video" and current_source != "all" and current_run_index != "all":
                 set_video_datetime_by_run(current_source, int(current_run_index))
 
-        
         # Function to reset datetime to default (today)
         def reset_to_default_datetime():
             today = date.today()
@@ -482,12 +556,18 @@ def show_selection_window():
         resolution_frame = tk.LabelFrame(control_frame, text="Time Resolution", padx=5, pady=5)
         resolution_frame.pack(fill=tk.X, pady=10)
         
+        # Configure resolution frame for better distribution
+        resolution_frame.grid_columnconfigure(0, weight=1)
+        resolution_frame.grid_columnconfigure(1, weight=1)
+        resolution_frame.grid_columnconfigure(2, weight=1)
+        resolution_frame.grid_columnconfigure(3, weight=1)
+        
         resolution_var = tk.StringVar(value="hour")
         
-        tk.Radiobutton(resolution_frame, text="Second", variable=resolution_var, value="second").grid(row=0, column=0, padx=10)
-        tk.Radiobutton(resolution_frame, text="Minute", variable=resolution_var, value="minute").grid(row=0, column=1, padx=10)
-        tk.Radiobutton(resolution_frame, text="Hour", variable=resolution_var, value="hour").grid(row=0, column=2, padx=10)
-        tk.Radiobutton(resolution_frame, text="Day", variable=resolution_var, value="day").grid(row=0, column=3, padx=10)
+        tk.Radiobutton(resolution_frame, text="Second", variable=resolution_var, value="second").grid(row=0, column=0, padx=10, sticky='w')
+        tk.Radiobutton(resolution_frame, text="Minute", variable=resolution_var, value="minute").grid(row=0, column=1, padx=10, sticky='w')
+        tk.Radiobutton(resolution_frame, text="Hour", variable=resolution_var, value="hour").grid(row=0, column=2, padx=10, sticky='w')
+        tk.Radiobutton(resolution_frame, text="Day", variable=resolution_var, value="day").grid(row=0, column=3, padx=10, sticky='w')
         
         # Visualization options
         visual_frame = tk.LabelFrame(control_frame, text="Visualization", padx=5, pady=5)
@@ -497,7 +577,7 @@ def show_selection_window():
         
         # tk.Radiobutton(visual_frame, text="Bar Chart", variable=visual_var, value="bar").grid(row=0, column=0, padx=10)
         # tk.Radiobutton(visual_frame, text="Line Chart", variable=visual_var, value="line").grid(row=0, column=1, padx=10)
-        tk.Radiobutton(visual_frame, text="Area Chart", variable=visual_var, value="area").grid(row=0, column=2, padx=10)
+        tk.Radiobutton(visual_frame, text="Area Chart", variable=visual_var, value="area").grid(row=0, column=2, padx=10, sticky='w')
         
         # Validated fetch function
         def validated_fetch_data():
@@ -519,7 +599,7 @@ def show_selection_window():
                     end_date_entry, end_hour, end_min, end_sec,
                     resolution_var.get(), visual_var.get(),
                     mode_var.get(), source_var.get(), direction_var.get(),
-                    result_label, graph_frame, run_index_var.get()
+                    result_label, graph_frame, run_index_var.get(), download_button_frame
                 )
                 
             except Exception as e:
@@ -555,8 +635,15 @@ def show_selection_window():
         end_min.insert(0, "59")
         end_sec.delete(0, tk.END)
         end_sec.insert(0, "59")
-        
+            
         def on_close():
+            # When this window closes, re-show menu
+            try:
+                sel.deiconify()
+            except tk.TclError:
+                # if menu was destroyed, recreate
+                show_selection_window()
+            main_canvas.unbind_all("<MouseWheel>")  # Clean up mouse wheel binding
             query_win.grab_release()
             query_win.destroy()
     
@@ -566,7 +653,7 @@ def show_selection_window():
     def fetch_data(start_date_entry, start_hour, start_min, start_sec, 
                    end_date_entry, end_hour, end_min, end_sec,
                    resolution, visualization, mode_type, source, direction,
-                   result_label, graph_frame, run_index="all"):
+                   result_label, graph_frame, run_index, download_button_frame):
         # Get date and time values
         start_date = start_date_entry.get_date()
         start_time = f"{start_hour.get().zfill(2)}:{start_min.get().zfill(2)}:{start_sec.get().zfill(2)}"
@@ -761,13 +848,85 @@ def show_selection_window():
                 time_periods.append(current_date)
                 counts.append(day_counts.get(current_date, 0))  # 0 for gaps
                 current_date += timedelta(days=1)
+                
+        # Store data for CSV export (add this as a global variable or pass it around)
+        global current_graph_data
+        current_graph_data = {
+            'time_periods': time_periods,
+            'counts': counts,
+            'title': title,
+            'filters': filters,
+            'resolution': resolution
+        }
         
         # Create figure
         fig, ax = plt.subplots(figsize=(12, 6))
         
         if visualization == "area":
             ax.fill_between(time_periods, counts, alpha=0.4, step='mid')
-            ax.plot(time_periods, counts, linestyle='-', linewidth=1, marker='o', markersize=2)
+            line = ax.plot(time_periods, counts, linestyle='-', linewidth=1, marker='o', markersize=2)[0]
+            
+        # Create hover annotation (initially invisible)
+        annotation = ax.annotate('', xy=(0,0), xytext=(20,20), textcoords="offset points",
+                                bbox=dict(boxstyle="round", fc="w"),
+                                arrowprops=dict(arrowstyle="->"))
+        annotation.set_visible(False)
+        
+        # Hover functionality
+        def on_hover(event):
+            if event.inaxes == ax:
+                # Find the closest data point
+                if len(time_periods) > 0 and event.xdata is not None:
+                    try:
+                        # Convert mouse x position to datetime
+                        mouse_time = mdates.num2date(event.xdata)
+                        
+                        # Make sure both datetimes have the same timezone awareness
+                        if mouse_time.tzinfo is not None and time_periods[0].tzinfo is None:
+                            # Convert mouse_time to naive datetime
+                            mouse_time = mouse_time.replace(tzinfo=None)
+                        elif mouse_time.tzinfo is None and time_periods[0].tzinfo is not None:
+                            # Convert time_periods to naive datetime (this case is less common)
+                            mouse_time = mouse_time.replace(tzinfo=time_periods[0].tzinfo)
+                        
+                        # Find closest time period
+                        time_diffs = [abs((tp - mouse_time).total_seconds()) for tp in time_periods]
+                        closest_idx = time_diffs.index(min(time_diffs))
+                        
+                        # Check if mouse is close enough to the line
+                        tolerance = (max(time_periods) - min(time_periods)).total_seconds() / len(time_periods) / 2
+                        if time_diffs[closest_idx] <= tolerance:
+                            # Show annotation
+                            x_val = time_periods[closest_idx]
+                            y_val = counts[closest_idx]
+                            
+                            # Format time based on resolution
+                            if resolution == "second":
+                                time_str = x_val.strftime('%Y-%m-%d %H:%M:%S')
+                            elif resolution == "minute":
+                                time_str = x_val.strftime('%Y-%m-%d %H:%M')
+                            elif resolution == "hour":
+                                time_str = x_val.strftime('%Y-%m-%d %H:00')
+                            else:  # day
+                                time_str = x_val.strftime('%Y-%m-%d')
+                            
+                            annotation.xy = (mdates.date2num(x_val), y_val)
+                            annotation.set_text(f'Time: {time_str}\nCount: {y_val}')
+                            annotation.set_visible(True)
+                            fig.canvas.draw_idle()
+                        else:
+                            annotation.set_visible(False)
+                            fig.canvas.draw_idle()
+                    except Exception as e:
+                        # If there's any error with hover, just hide the annotation
+                        annotation.set_visible(False)
+                        fig.canvas.draw_idle()
+            else:
+                annotation.set_visible(False)
+                fig.canvas.draw_idle()
+        
+        # Connect hover event
+        fig.canvas.mpl_connect('motion_notify_event', on_hover)
         
         # FIXED: Smart tick handling to prevent overflow
         num_points = len(time_periods)
@@ -854,10 +1013,112 @@ def show_selection_window():
         # Adjust layout
         plt.tight_layout()
         
-        # Create canvas
+        # Create canvas with reduced height to make room for buttons
         canvas = FigureCanvasTkAgg(fig, master=graph_frame)
         canvas.draw()
-        canvas.get_tk_widget().pack(fill='both', expand=True)
+        canvas_widget = canvas.get_tk_widget()
+        canvas_widget.pack(fill='both', expand=True, padx=5, pady=5)
+    
+        
+        if download_button_frame:
+            # Clear existing buttons
+            for widget in download_button_frame.winfo_children():
+                widget.destroy()
+            
+            def download_csv():
+                try:
+                    file_path = filedialog.asksaveasfilename(
+                        defaultextension=".csv",
+                        filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
+                        title="Save graph data as CSV"
+                    )
+                    
+                    if file_path:
+                        with open(file_path, 'w', newline='', encoding='utf-8') as csvfile:
+                            writer = csv.writer(csvfile)
+                            
+                            # Write header with metadata
+                            writer.writerow([f"# {current_graph_data['title']}"])
+                            writer.writerow([f"# Resolution: {current_graph_data['resolution']}"])
+                            writer.writerow([f"# Total entries: {sum(current_graph_data['counts'])}"])
+                            writer.writerow([f"# Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"])
+                            writer.writerow([])  # Empty row
+                            
+                            # Write column headers
+                            writer.writerow(['Time', 'Count'])
+                            
+                            # Write data
+                            for time_period, count in zip(current_graph_data['time_periods'], current_graph_data['counts']):
+                                if current_graph_data['resolution'] == "second":
+                                    time_str = time_period.strftime('%Y-%m-%d %H:%M:%S')
+                                elif current_graph_data['resolution'] == "minute":
+                                    time_str = time_period.strftime('%Y-%m-%d %H:%M')
+                                elif current_graph_data['resolution'] == "hour":
+                                    time_str = time_period.strftime('%Y-%m-%d %H:00')
+                                else:  # day
+                                    time_str = time_period.strftime('%Y-%m-%d')
+                                
+                                writer.writerow([time_str, count])
+                        
+                        messagebox.showinfo("Success", f"Data exported successfully to:\n{file_path}")
+                
+                except Exception as e:
+                    messagebox.showerror("Error", f"Failed to export data:\n{str(e)}")
+            
+            def download_png():
+                try:
+                    file_path = filedialog.asksaveasfilename(
+                        defaultextension=".png",
+                        filetypes=[("PNG files", "*.png"), ("All files", "*.*")],
+                        title="Save graph as PNG"
+                    )
+                    
+                    if file_path:
+                        fig.savefig(file_path, dpi=300, bbox_inches='tight')
+                        messagebox.showinfo("Success", f"Graph saved successfully to:\n{file_path}")
+                
+                except Exception as e:
+                    messagebox.showerror("Error", f"Failed to save graph:\n{str(e)}")
+            
+            # Create the download buttons
+            info_label = tk.Label(
+                download_button_frame,
+                text="Download Options:",
+                font=("Arial", 10, "bold"),
+                fg="#333333",
+                bg="#f0f0f0"
+            )
+            info_label.pack(side=tk.LEFT, padx=(10, 15), pady=15)
+            
+            csv_button = tk.Button(
+                download_button_frame,
+                text="📊 Download CSV Data",
+                command=download_csv,
+                bg="#2196F3", fg="white", 
+                font=("Arial", 9, "bold"),
+                padx=12, pady=8,
+                relief="raised",
+                borderwidth=2,
+                cursor="hand2"
+            )
+            csv_button.pack(side=tk.LEFT, padx=5, pady=15)
+            
+            png_button = tk.Button(
+                download_button_frame,
+                text="📈 Save Graph as PNG",
+                command=download_png,
+                bg="#FF9800", fg="white",
+                font=("Arial", 9, "bold"), 
+                padx=12, pady=8,
+                relief="raised",
+                borderwidth=2,
+                cursor="hand2"
+            )
+            png_button.pack(side=tk.LEFT, padx=5, pady=15)
+            
+            # Add some spacing on the right
+            spacer = tk.Label(download_button_frame, bg="#f0f0f0")
+            spacer.pack(side=tk.RIGHT, padx=10)
         
         # Close the matplotlib figure to prevent memory leaks
         plt.close(fig)
@@ -1224,7 +1485,7 @@ def open_video_analysis(sel):
     # Create Video Analysis window
     va_win = tk.Toplevel(sel)
     va_win.title("Video Analysis")
-    va_win.geometry("350x280")
+    va_win.geometry("350x350")
     va_win.protocol("WM_DELETE_WINDOW", on_close)
     
     # --- Video Selection ---
@@ -1233,6 +1494,18 @@ def open_video_analysis(sel):
     video_var = tk.StringVar(value=video_files[0] if video_files else "")
     video_menu = ttk.OptionMenu(va_win, video_var, video_var.get(), *video_files)
     video_menu.pack(fill="x", padx=15, pady=(0,10))
+    
+    # --- Recording Options ---
+    recording_frame = tk.Frame(va_win)
+    recording_frame.pack(fill="x", padx=15, pady=(0,10))
+    
+    tk.Label(recording_frame, text="Recording Options:", font=("Arial", 10, "bold")).pack(anchor="w")
+    
+    record_on_start_var = tk.BooleanVar(value=False)
+    record_checkbox = tk.Checkbutton(recording_frame, 
+                                   text="Start recording when analysis begins", 
+                                   variable=record_on_start_var)
+    record_checkbox.pack(anchor="w", pady=(5,0))
     
     # --- Ground Truth Count Input ---
     ground_truth_frame = tk.Frame(va_win)
@@ -1355,12 +1628,14 @@ def open_video_analysis(sel):
             run_index = get_next_run_index(video_var.get())
         except:
             run_index = 1
+            
+        # Get recording option
+        start_recording = record_on_start_var.get()
         
         # Hide selection window and start threads
         va_win.destroy()
  
         # Start the threads
-        # thread_controller.reset()
         start_threads()
         
         # Define callback for when counter window closes
@@ -1387,6 +1662,7 @@ def open_video_analysis(sel):
             video_path=video_var.get(), 
             on_close=on_va_close,
             ground_truth_count=ground_truth_count,
-            run_index=run_index
+            run_index=run_index,
+            start_recording=start_recording
         )
         

@@ -32,7 +32,7 @@ class EmbeddedFrame:
         
         # Line Crossing State (for LINE mode)
         self.crossing_line = None
-        self.line_orientation = "horizontal"  # "horizontal" or "vertical"
+        self.line_orientation = "vertical"  # "horizontal" or "vertical"
         self.line_y = VideoProcessor.FRAME_HEIGHT // 2  # Default line in middle
         self.line_x = VideoProcessor.FRAME_WIDTH // 2   # Default vertical line in middle
         self.track_positions = {}  # track_id -> list of recent positions
