@@ -6,7 +6,7 @@
     "192.168.1.65"
   ],
   "CAMERA_SOURCES": [
-    0
+    "rtsp://admin:Abcdefghi1@192.168.1.64:554/Streaming/Channels/101?transport=tcp"
   ],
   "video_parameters": {
     "width": 1280,
@@ -14,9 +14,9 @@
   },
   "DATABASE_PATH": "watchly_ai.db",
   "model_default_setting": {
-    "model": "yolo11n.pt",
-    "conf": 0.2,
-    "iou": 0.1
+    "model": "yolo11m.pt",
+    "conf": 0.35,
+    "iou": 0.2
   },
   "tracker_default_setting": {
     "tracker_type": "botsort",
@@ -55,107 +55,51 @@
         ]
       ]
     },
-    "frame_2": {
+    "Bottom": {
       "width": 1280,
       "height": 720,
       "value": [
         [
-          308,
-          219
+          0,
+          312
         ],
         [
-          1029,
-          213
+          1276,
+          308
         ],
         [
-          1076,
-          717
+          1274,
+          703
         ],
         [
-          282,
-          716
-        ],
-        [
-          266,
-          448
+          2,
+          690
         ]
       ]
     },
-    "frame_3": {
+    "Frame_1": {
       "width": 1280,
       "height": 720,
       "value": [
         [
-          500,
-          268
+          437,
+          105
         ],
         [
-          900,
-          263
+          623,
+          105
         ],
         [
-          903,
-          719
+          668,
+          626
         ],
         [
-          465,
-          719
+          415,
+          618
         ],
         [
-          500,
-          631
-        ]
-      ]
-    },
-    "Frame_1_ROI": {
-      "width": 1280,
-      "height": 720,
-      "value": [
-        [
-          33,
-          141
-        ],
-        [
-          1264,
-          133
-        ],
-        [
-          1218,
-          531
-        ],
-        [
-          21,
-          444
-        ],
-        [
-          76,
-          417
-        ]
-      ]
-    },
-    "Frame_2_Test": {
-      "width": 1280,
-      "height": 720,
-      "value": [
-        [
-          456,
-          87
-        ],
-        [
-          1113,
-          116
-        ],
-        [
-          1125,
-          587
-        ],
-        [
-          382,
-          517
-        ],
-        [
-          425,
-          251
+          429,
+          336
         ]
       ]
     }
