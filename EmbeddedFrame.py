@@ -195,7 +195,7 @@ class EmbeddedFrame:
             # Remove the temp count if the person is out of frame for 10 frames
             
             for track_id in list(self.temp_count):
-                if self.frame_idx - self.last_seen[track_id] > 10:
+                if (self.frame_idx - self.last_seen[track_id]) > 10:
                     self.temp_count.remove(track_id)
 
             # Calculate and display FPS
