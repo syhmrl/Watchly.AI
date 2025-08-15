@@ -12,4 +12,5 @@ yolo11_head_detection*/
 venv
 *.zip
 yolo*.pt
+People-Detection-5/
 
