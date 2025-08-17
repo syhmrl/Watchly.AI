@@ -219,20 +219,14 @@ def get_analysis_comparison(video_name):
         _, cursor = db.get_connection()
         cursor.execute("""
             SELECT 
-                run_index, total_count, ground_truth_count, precision, recall, f1_score,
-                processing_time_ms, frame_count, analysis_timestamp,
-                model_name, confidence, iou, tracker_type
+                *
             FROM video_analysis 
             WHERE video_name = ? 
             ORDER BY run_index, analysis_timestamp
         """, (video_name,))
         
         results = cursor.fetchall()
-        columns = [
-            'run_index', 'total_count', 'ground_truth_count', 'precision', 'recall', 'f1_score',
-            'processing_time_ms', 'frame_count', 'analysis_timestamp',
-            'model_name', 'confidence', 'iou', 'tracker_type'
-        ]
+        columns = [description[0] for description in cursor.description]
         
         return [dict(zip(columns, row)) for row in results]
     except Exception as e:
@@ -530,6 +524,30 @@ def get_grouped_counts_filtered(start_timestamp, end_timestamp, groupby, filters
     finally:
         db.close()
         
+def get_analysis_by_run_index(video_name, run_index):
+    """
+    Get all analysis data for a specific video and run index
+    """
+    db = Database()
+    try:
+        _, cursor = db.get_connection()
+        cursor.execute("""
+            SELECT *
+            FROM video_analysis 
+            WHERE video_name = ? AND run_index = ?
+        """, (video_name, run_index))
+        
+        result = cursor.fetchone()
+        if result:
+            columns = [description[0] for description in cursor.description]
+            return dict(zip(columns, result))
+        return None
+    except Exception as e:
+        print(f"Error getting analysis by run index: {e}")
+        return None
+    finally:
+        db.close()
+
 if __name__ == "__main__":
     db = Database()
     

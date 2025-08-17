@@ -5,6 +5,7 @@ import VideoProcessor
 import os
 import config
 import csv
+import numpy as np
 
 from datetime import datetime, date, timedelta
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
@@ -300,6 +301,37 @@ def show_selection_window():
             bg="#f0f0f0"
         )
         placeholder_label.pack(pady=15)
+
+        # --- Comparison Frame ---
+        comparison_frame = tk.Frame(scrollable_frame, padx=10, pady=10)
+        # This frame is packed later when the mode is changed to 'video'
+
+        comparison_control_frame = tk.LabelFrame(comparison_frame, text="Compare Analysis Runs", padx=10, pady=10)
+        comparison_control_frame.pack(fill=tk.X, pady=10)
+
+        # Source name label
+        source_name_label = tk.Label(comparison_control_frame, text="Source: ")
+        source_name_label.grid(row=0, column=0, padx=5, pady=5, sticky='w')
+
+        # Run A selection
+        tk.Label(comparison_control_frame, text="Run A:").grid(row=1, column=0, padx=5, pady=5, sticky='w')
+        run_a_var = tk.StringVar()
+        run_a_combo = ttk.Combobox(comparison_control_frame, textvariable=run_a_var, state="readonly", width=10)
+        run_a_combo.grid(row=1, column=1, padx=5, pady=5, sticky='w')
+
+        # Run B selection
+        tk.Label(comparison_control_frame, text="Run B:").grid(row=1, column=2, padx=5, pady=5, sticky='w')
+        run_b_var = tk.StringVar()
+        run_b_combo = ttk.Combobox(comparison_control_frame, textvariable=run_b_var, state="readonly", width=10)
+        run_b_combo.grid(row=1, column=3, padx=5, pady=5, sticky='w')
+
+        # Compare button
+        compare_button = tk.Button(comparison_control_frame, text="Compare", command=lambda: compare_runs(source_var.get(), run_a_var.get(), run_b_var.get(), comparison_graph_frame, scrollable_frame, _on_mousewheel))
+        compare_button.grid(row=1, column=4, padx=10, pady=5, sticky='w')
+
+        comparison_graph_frame = tk.Frame(comparison_frame, padx=10, pady=10, height=400)
+        comparison_graph_frame.pack(fill=tk.X, pady=10)
+        comparison_graph_frame.pack_propagate(False)
         
         # Filtering options
         filter_frame = tk.LabelFrame(control_frame, text="Filters", padx=10, pady=10)
@@ -411,13 +443,25 @@ def show_selection_window():
                     run_values = ["all"] + [str(idx) for idx in run_indices]
                     run_index_combo['values'] = run_values
                     run_index_combo.set("all")
+                    run_a_combo['values'] = run_values
+                    run_a_combo.set("all")
+                    run_b_combo['values'] = run_values
+                    run_b_combo.set("all")
                 else:
                     run_index_combo['values'] = ["all"]
                     run_index_combo.set("all")
+                    run_a_combo['values'] = ["all"]
+                    run_a_combo.set("all")
+                    run_b_combo['values'] = ["all"]
+                    run_b_combo.set("all")
             except Exception as e:
                 print(f"Error populating run indices: {e}")
                 run_index_combo['values'] = ["all"]
                 run_index_combo.set("all")
+                run_a_combo['values'] = ["all"]
+                run_a_combo.set("all")
+                run_b_combo['values'] = ["all"]
+                run_b_combo.set("all")
         
         # Function to show/hide run index combobox
         def toggle_run_index_visibility():
@@ -431,6 +475,15 @@ def show_selection_window():
                 run_index_frame.grid_forget()
                 run_index_var.set("all")
         
+        def toggle_comparison_frame_visibility():
+            if mode_var.get() == "video":
+                comparison_frame.pack(fill=tk.X, pady=10)
+            else:
+                comparison_frame.pack_forget()
+                # Clear the graph when hiding
+                for widget in comparison_graph_frame.winfo_children():
+                    widget.destroy()
+
         # Function to populate source dropdown based on mode
         def populate_sources():
             try:
@@ -452,6 +505,7 @@ def show_selection_window():
         def on_mode_change(*args):
             populate_sources()
             toggle_run_index_visibility()
+            toggle_comparison_frame_visibility()
             # Reset to default datetime when changing mode
             if mode_var.get() != "video":
                 reset_to_default_datetime()
@@ -464,9 +518,18 @@ def show_selection_window():
             if current_mode == "video" and current_source != "all":
                 populate_run_indices()
                 set_video_datetime(current_source)
-                
+                source_name_label.config(text=f"Source: {current_source}")
+            else:
+                source_name_label.config(text="Source: ")
+
             # Show/hide run index combobox based on selection
             toggle_run_index_visibility()
+
+            # Clear comparison
+            run_a_var.set("all")
+            run_b_var.set("all")
+            for widget in comparison_graph_frame.winfo_children():
+                widget.destroy()
             
         # Function to handle run index change and update timestamps
         def on_run_index_change(*args):
@@ -1123,6 +1186,111 @@ def show_selection_window():
         # Close the matplotlib figure to prevent memory leaks
         plt.close(fig)
 
+    def compare_runs(video_name, run_a_index, run_b_index, comparison_graph_frame, scrollable_frame, _on_mousewheel):
+        if not video_name or run_a_index == "all" or run_b_index == "all":
+            messagebox.showerror("Error", "Please select a video and two runs to compare.")
+            return
+
+        if run_a_index == run_b_index:
+            messagebox.showerror("Error", "Please select two different runs to compare.")
+            return
+
+        try:
+            run_a_data = get_analysis_by_run_index(video_name, int(run_a_index))
+            run_b_data = get_analysis_by_run_index(video_name, int(run_b_index))
+
+            if not run_a_data or not run_b_data:
+                messagebox.showerror("Error", "Could not retrieve data for one or both of the selected runs.")
+                return
+
+            # Clear previous graph
+            for widget in comparison_graph_frame.winfo_children():
+                widget.destroy()
+
+            # Create a frame for the chart
+            comparison_chart_frame = tk.Frame(comparison_graph_frame)
+            comparison_chart_frame.pack(side=tk.TOP, fill="x", expand=False)
+
+            # Numerical metrics for the bar chart
+            numerical_metrics = [
+                'total_count', 'ground_truth_count', 'precision', 'recall', 'f1_score', 'processing_time_ms'
+            ]
+            
+            labels = [metric.replace("_", " ").title() for metric in numerical_metrics]
+            run_a_values = [run_a_data.get(metric, 0) for metric in numerical_metrics]
+            run_b_values = [run_b_data.get(metric, 0) for metric in numerical_metrics]
+
+            x = np.arange(len(labels))
+            width = 0.35
+
+            fig, ax = plt.subplots(figsize=(12, 6))
+            rects1 = ax.bar(x - width/2, run_a_values, width, label=f'Run {run_a_index}')
+            rects2 = ax.bar(x + width/2, run_b_values, width, label=f'Run {run_b_index}')
+
+            ax.set_ylabel('Scores')
+            ax.set_title(f'Comparison of Run {run_a_index} and Run {run_b_index} for {video_name}')
+            ax.set_xticks(x)
+            ax.set_xticklabels(labels, rotation=45, ha="right")
+            ax.legend()
+
+            ax.bar_label(rects1, padding=3)
+            ax.bar_label(rects2, padding=3)
+
+            fig.tight_layout()
+
+            canvas = FigureCanvasTkAgg(fig, master=comparison_chart_frame)
+            canvas.draw()
+            canvas.get_tk_widget().pack(fill='both', expand=True)
+            
+            plt.close(fig)
+
+            # Create a frame for the Treeview
+            comparison_tree_frame = tk.Frame(comparison_graph_frame)
+            comparison_tree_frame.pack(side=tk.TOP, fill="both", expand=True)
+
+            # Other metrics for the Treeview
+            other_metrics = [
+                'model_name', 'confidence', 'iou', 'last_tracked_id', 'tracker_type', 
+                'track_high_thresh', 'track_low_thresh', 'new_track_thresh', 'track_buffer', 
+                'match_thresh', 'fuse_score', 'gmc_method', 'proximity_thresh', 
+                'appearance_thresh', 'with_reid', 'tracker_model'
+            ]
+
+            # Create a Treeview for comparison
+            columns = ("metric", "run_a", "run_b")
+            tree = ttk.Treeview(comparison_tree_frame, columns=columns, show="headings")
+            tree.heading("metric", text="Metric")
+            tree.heading("run_a", text=f"Run {run_a_index}")
+            tree.heading("run_b", text=f"Run {run_b_index}")
+            
+            vsb = ttk.Scrollbar(comparison_tree_frame, orient="vertical", command=tree.yview)
+            vsb.pack(side='right', fill='y')
+            tree.configure(yscrollcommand=vsb.set)
+            
+            tree.pack(fill="both", expand=True)
+
+            for metric in other_metrics:
+                value_a = run_a_data.get(metric, "N/A")
+                value_b = run_b_data.get(metric, "N/A")
+                tree.insert("", "end", values=(metric.replace("_", " ").title(), value_a, value_b))
+                
+            def _on_tree_mousewheel(event):
+                tree.yview_scroll(int(-1*(event.delta/120)), "units")
+
+            def _bind_tree_mousewheel(event):
+                scrollable_frame.unbind_all("<MouseWheel>")
+                tree.bind("<MouseWheel>", _on_tree_mousewheel)
+
+            def _unbind_tree_mousewheel(event):
+                scrollable_frame.bind_all("<MouseWheel>", _on_mousewheel)
+
+            tree.bind('<Enter>', _bind_tree_mousewheel)
+            tree.bind('<Leave>', _unbind_tree_mousewheel)
+
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to compare runs: {e}")
+
+
     # Validation function for this window
     def validate_and_proceed():
         is_valid, error_msg = validate_datetime_range(
@@ -1231,6 +1399,8 @@ def show_selection_window():
 
     # Handle window close properly
     def on_close():
+        # Set the stop event for all threads
+        thread_controller.stop_event.set()
         # Clean up database connection
         db = Database()
         db.close()
@@ -1242,6 +1412,7 @@ def show_selection_window():
     # Start the main loop for selection window
     sel.mainloop()
     
+
 def validate_datetime_range(start_date_entry, start_hour, start_min, start_sec,
                            end_date_entry, end_hour, end_min, end_sec):
     """
@@ -1469,7 +1640,8 @@ def open_model_setting(sel):
         on_close()
         
 def open_video_analysis(sel):
-    from VideoAnalysisFrame import VideoAnalysisFrame
+    from VideoAnalysisReid import VideoAnalysisFrameReID
+    
     # Hide main menu
     sel.withdraw()
 
@@ -1657,7 +1829,7 @@ def open_video_analysis(sel):
         video_analysis.title(f"Video Analysis - {video_var.get()} (Run #{run_index})")
         
         # Pass video path, ground truth count, and run index
-        app = VideoAnalysisFrame(
+        app = VideoAnalysisFrameReID(
             video_analysis, 
             video_path=video_var.get(), 
             on_close=on_va_close,

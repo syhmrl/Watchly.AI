@@ -4,9 +4,12 @@ import threading
 import os
 import datetime
 import matplotlib.pyplot as plt
+import torch
+import torchreid
 
+from scipy.spatial.distance import cosine
 from PIL import Image, ImageTk
-from tkinter import messagebox, ttk
+from tkinter import ttk
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
 # existing modules
@@ -18,7 +21,12 @@ import tracker_config
 from database_utils import insert_video_analysis
 from helpers import *
 
-class VideoAnalysisFrame:
+# A simple helper function to calculate similarity
+def cosine_similarity(embedding1, embedding2):
+    # The 'cosine' function from scipy calculates distance, so 1 - distance is similarity
+    return 1 - cosine(embedding1, embedding2)
+
+class VideoAnalysisFrameReID:
     def __init__(self, root, video_path, on_close=None, ground_truth_count=None, run_index=1, start_recording=False):
         self.on_close = on_close
         self.root = root
@@ -48,6 +56,25 @@ class VideoAnalysisFrame:
             return
 
         self.model = load_model(config.get_model_name())
+        
+        # ### NEW: Initialize Re-ID Model ###
+        print("Loading Re-ID model...")
+        self.reid_model = torchreid.models.build_model(
+            name='osnet_x0_25',      # A lightweight but effective model
+            num_classes=1,          # A placeholder, not used for feature extraction
+            pretrained=True
+        ).to('cuda' if torch.cuda.is_available() else 'cpu')
+        self.reid_model.eval()
+        self.reid_transform = torchreid.data.transforms.build_transforms(
+            height=256, width=128, is_train=False,
+        )[0]
+        print("Re-ID model loaded.")
+
+        # ### NEW: Data structures for Re-ID ###
+        self.active_track_features = {}  # track_id -> list of embeddings
+        self.lost_track_features = {}    # track_id -> final aggregated embedding
+        self.similarity_threshold = 0.4 # Tune this threshold based on your results
+        self.next_person_id = 1 # Custom counter for persistent IDs
 
         self.enable_visual = True
         self.enable_recording = start_recording
@@ -63,7 +90,10 @@ class VideoAnalysisFrame:
         self.detection_count = {}    # track_id -> consecutive frames seen
         self.frame_idx       = 0
 
-        self.min_detection = 30
+        self.min_detection = 15
+        
+        # Mapping from BoTSORT's temporary ID to our persistent ID
+        self.tracker_id_map = {}
 
         # Build UI
         self._build_ui()
@@ -99,6 +129,25 @@ class VideoAnalysisFrame:
         self.btn_record = tk.Button(ctrl, text=record_text, command=self._toggle_record)
         self.btn_record.pack(side=tk.LEFT, padx=2)
         
+     # ### NEW: Function to get feature embedding ###
+    @torch.no_grad()
+    def get_embedding(self, frame, box):
+        """Extracts a feature embedding from a person's bounding box."""
+        x1, y1, x2, y2 = map(int, box)
+        crop = frame[y1:y2, x1:x2]
+        
+        if crop.size == 0:
+            return None
+
+        # Convert crop to RGB (PIL format for transforms) and apply transforms
+        crop_pil = Image.fromarray(cv2.cvtColor(crop, cv2.COLOR_BGR2RGB))
+        image = self.reid_transform(crop_pil).unsqueeze(0)
+        image = image.to('cuda' if torch.cuda.is_available() else 'cpu')
+        
+        # Get the feature embedding
+        features = self.reid_model(image)
+        return features.cpu().numpy()[0]
+        
     def _start_recording(self):
         """Start recording if not already started"""
         if self.enable_recording and self.writer is None:
@@ -120,54 +169,97 @@ class VideoAnalysisFrame:
             return
 
         self.frame_idx += 1
-        seen_this_frame = set()
-        tid = None
-           
+        tracker_id = None
+        
         frame = cv2.resize(frame, (VideoProcessor.FRAME_WIDTH, VideoProcessor.FRAME_HEIGHT))
+        results = VideoProcessor.model_video(self.model, frame) # Your model_video function
+        
+        current_tracker_ids = set()
 
-        # YOLO inference
-        results = VideoProcessor.model_video(self.model, frame)
-                
         for result in results:
-
             for box in result.boxes:
-                
-                tid = int(box.id.item()) if box.id is not None else None
-
-                if tid is None:
+                tracker_id = int(box.id.item()) if box.id is not None else None
+                if tracker_id is None:
                     continue
                 
-                self.last_seen[tid] = self.frame_idx
-                seen_this_frame.add(tid)
+                current_tracker_ids.add(tracker_id)
+                xyxy = box.xyxy[0].tolist()
+                persistent_id = None
+
+                # ### CORE RE-ID LOGIC ###
+                if tracker_id not in self.tracker_id_map:
+                    # This is a new track according to BoTSORT
+                    embedding = self.get_embedding(frame, xyxy)
+                    if embedding is None:
+                        continue
+
+                    best_match_id = -1
+                    best_match_score = self.similarity_threshold
+                    
+                    # Compare with lost tracks
+                    print(f"--- Frame {self.frame_idx}: New BoTSORT ID {tracker_id} appeared. Checking {len(self.lost_track_features)} lost tracks. ---") # DEBUG PRINT
+                    for lost_id, lost_embedding in self.lost_track_features.items():
+                        similarity = cosine_similarity(embedding, lost_embedding)
+                        
+                        print(f"Comparing to Persistent ID {lost_id}. Similarity: {similarity:.4f}")
+                        if similarity > best_match_score:
+                            best_match_score = similarity
+                            best_match_id = lost_id
+                    
+                    if best_match_id != -1:
+                        # It's a match! Re-assign the old ID
+                        persistent_id = best_match_id
+                        self.tracker_id_map[tracker_id] = persistent_id
+                        # Move features from lost back to active
+                        self.active_track_features[persistent_id] = [self.lost_track_features.pop(best_match_id)]
+                        print(f"Re-identified person! BoTSORT ID {tracker_id} -> Persistent ID {persistent_id}")
+                    else:
+                        # It's a genuinely new person
+                        persistent_id = self.next_person_id
+                        self.tracker_id_map[tracker_id] = persistent_id
+                        self.active_track_features[persistent_id] = [embedding]
+                        self.next_person_id += 1
+                        print(f"New person detected! BoTSORT ID {tracker_id} -> Persistent ID {persistent_id}")
+                else:
+                    # This is an existing track
+                    persistent_id = self.tracker_id_map[tracker_id]
+                    # Update features periodically for robustness (e.g., every 10 frames)
+                    if self.frame_idx % 10 == 0:
+                        embedding = self.get_embedding(frame, xyxy)
+                        if embedding is not None:
+                            self.active_track_features[persistent_id].append(embedding)
+                            # Keep only the last N features to save memory
+                            self.active_track_features[persistent_id] = self.active_track_features[persistent_id][-20:]
                 
-                # Increment detection counter for this ID
-                self.detection_count[tid] = self.detection_count.get(tid, 0) + 1
-                
-                if  tid not in self.counted_ids and self.detection_count[tid] >= self.min_detection:
-                    self.counted_ids.add(tid)
-                    self.total_count += 1
+                # --- Counting and Drawing Logic (using persistent_id) ---
+                if persistent_id is not None:
+                    if persistent_id not in self.counted_ids:
+                        self.counted_ids.add(persistent_id)
+                        self.total_count += 1
+                        # VideoProcessor.count_to_db(...) # Use persistent_id here
 
-                    VideoProcessor.count_to_db(self.video_name, tid, 'enter', 'video')
+                    self.temp_count.add(persistent_id)
 
-                # Add met the min detection threshold
-                if self.detection_count[tid] >= self.min_detection:
-                    self.temp_count.add(tid)
+                    # Draw bounding box with the persistent ID
+                    color = VideoProcessor.random_colors[persistent_id % len(VideoProcessor.random_colors)]
+                    if self.enable_visual:
+                        x1, y1, x2, y2 = map(int, xyxy)
+                        cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+                        cv2.putText(frame, f"ID: {persistent_id}", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
 
-                # Draw bounding box and ID
-                color = VideoProcessor.random_colors[tid % len(VideoProcessor.random_colors)]
-                if self.enable_visual:
-                    x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
-                    cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
-                    cv2.putText(frame, f"ID: {tid}", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+        # ### Logic for handling lost tracks ###
+        lost_tracker_ids = set(self.tracker_id_map.keys()) - current_tracker_ids
+        for tracker_id in lost_tracker_ids:
+            persistent_id = self.tracker_id_map.pop(tracker_id)
+            
+            if persistent_id in self.active_track_features:
+                # Aggregate features to get a stable representation
+                features = np.mean(self.active_track_features.pop(persistent_id), axis=0)
+                self.lost_track_features[persistent_id] = features
+                print(f"Track for persistent ID {persistent_id} lost. Storing features.")
 
-        # Clean up tracks that haven't been seen recently
-        cleanup_stale(self.last_seen, self.frame_idx, self.detection_count)
-
-        # Remove the temp count if the person is out of frame for 20 frames
-        for track_id in list(self.temp_count):
-            if self.frame_idx - self.last_seen[track_id] > 20:
-                self.temp_count.remove(track_id)
-
+            if persistent_id in self.temp_count:
+                self.temp_count.remove(persistent_id)
         if self.enable_visual:
             VideoProcessor.display_crowd_count(self.total_count, frame)
             VideoProcessor.display_inframe_count(len(self.temp_count), frame)
@@ -176,7 +268,7 @@ class VideoAnalysisFrame:
         if self.enable_recording and self.writer:
             self.writer.write(frame)
             
-        self.last_tracked_id = tid
+        self.last_tracked_id = tracker_id
 
         # Convert to Tk image and display
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -191,7 +283,7 @@ class VideoAnalysisFrame:
         self.total_processing_time_ms += frame_processing_time_ms
 
         # Schedule next frame update
-        self.root.after(30, self._update_loop)
+        self.root.after(10, self._update_loop)
 
     def stop(self):
         print("Stopping video analysis...")

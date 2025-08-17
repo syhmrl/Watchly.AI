@@ -15,8 +15,8 @@
   "DATABASE_PATH": "watchly_ai.db",
   "model_default_setting": {
     "model": "yolo11m.pt",
-    "conf": 0.35,
-    "iou": 0.2
+    "conf": 0.4,
+    "iou": 0.5
   },
   "tracker_default_setting": {
     "tracker_type": "botsort",

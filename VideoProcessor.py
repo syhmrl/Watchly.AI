@@ -8,9 +8,6 @@ import config
 
 from thread_manager import thread_controller
 from datetime import datetime
-from helpers import (
-    load_model, calculate_fps, cleanup_stale
-)
 
 CAMERA_SOURCES = config.get_camera_sources()
 FRAME_WIDTH, FRAME_HEIGHT = config.get_frame_size()

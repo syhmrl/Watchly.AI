@@ -1,8 +1,8 @@
 tracker_type: botsort
-track_high_thresh: 0.35
-track_low_thresh: 0.25
-new_track_thresh: 0.35
-track_buffer: 1000
+track_high_thresh: 0.4
+track_low_thresh: 0.2
+new_track_thresh: 0.4
+track_buffer: 150
 match_thresh: 0.7
 fuse_score: true
 gmc_method: sparseOptFlow
