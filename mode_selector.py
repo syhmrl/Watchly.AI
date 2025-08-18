@@ -13,6 +13,7 @@ from tkcalendar import DateEntry
 from tkinter import messagebox, ttk, filedialog
 from database_utils import *
 from EmbeddedFrame import EmbeddedFrame
+from EmbeddedFrameReid import EmbeddedFrameReid
 from thread_manager import start_threads, thread_controller
 
 # --- UI Styling ---
@@ -1478,7 +1479,6 @@ def show_selection_window():
             
         plt.close(comparison_fig)
 
-
     # Validation function for this window
     def validate_and_proceed():
         is_valid, error_msg = validate_datetime_range(
@@ -1518,7 +1518,6 @@ def show_selection_window():
         # Hide selection window and start threads
         sel.withdraw()  # Hide instead of destroy
         
-        
         # Start the threads
         # thread_controller.reset()
         start_threads()
@@ -1545,7 +1544,8 @@ def show_selection_window():
         crowd_win = tk.Toplevel(sel)
         crowd_win.title(window_title)
         # Pass either source_index=0 or loop for multiple sources
-        app = EmbeddedFrame(crowd_win, source_index=0, mode=COUNT_MODE, on_close=on_counting_close)
+        # app = EmbeddedFrame(crowd_win, source_index=0, mode=COUNT_MODE, on_close=on_counting_close)
+        app = EmbeddedFrameReid(crowd_win, source_index=0, mode=COUNT_MODE, on_close=on_counting_close)
         
     # Add buttons to selection window
     button_frame = ttk.Frame(content_frame)
