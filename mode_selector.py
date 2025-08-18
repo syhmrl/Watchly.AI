@@ -15,6 +15,15 @@ from database_utils import *
 from EmbeddedFrame import EmbeddedFrame
 from thread_manager import start_threads, thread_controller
 
+# --- UI Styling ---
+BG_COLOR = "#ECECEC"
+PRIMARY_COLOR = "#3498DB"
+SECONDARY_COLOR = "#2ECC71"
+TEXT_COLOR = "#333333"
+TITLE_FONT = ("Helvetica", 16, "bold")
+LABEL_FONT = ("Helvetica", 10)
+BUTTON_FONT = ("Helvetica", 10, "bold")
+
 COUNT_MODE = "LINE"
 CAMERA_SOURCES = VideoProcessor.CAMERA_SOURCES
 
@@ -40,28 +49,41 @@ def show_selection_window():
     # Create the main window
     sel = tk.Tk()
     sel.title("Crowd Monitoring System and Analysis")
-    sel.geometry("600x520")
-    
+    sel.geometry("600x550")
+    sel.configure(bg=BG_COLOR)
+
+    # Style
+    style = ttk.Style(sel)
+    style.theme_use('clam')
+    style.configure("TFrame", background=BG_COLOR)
+    style.configure("TLabel", background=BG_COLOR, foreground=TEXT_COLOR, font=LABEL_FONT)
+    style.configure("TRadiobutton", background=BG_COLOR, foreground=TEXT_COLOR, font=LABEL_FONT)
+    style.configure("TButton", foreground="white", font=BUTTON_FONT, background=PRIMARY_COLOR)
+    style.map("TButton", background=[('active', '#2980B9')])
+    style.configure("TLabelFrame", background=BG_COLOR, bordercolor=PRIMARY_COLOR)
+    style.configure("TLabelFrame.Label", background=BG_COLOR, foreground=TEXT_COLOR, font=LABEL_FONT)
+    style.configure("Disabled.TLabel", foreground="gray")
+
     # Add padding and styling
-    content_frame = tk.Frame(sel, padx=20, pady=20)
+    content_frame = ttk.Frame(sel, padding=(20, 20, 20, 20))
     content_frame.pack(fill=tk.BOTH, expand=True)
 
     # Count type selection
-    count_type_frame = tk.LabelFrame(content_frame, text="Counting Type", padx=10, pady=10)
+    count_type_frame = ttk.LabelFrame(content_frame, text="Counting Type", padding=(10, 10, 10, 10))
     count_type_frame.pack(fill=tk.X, pady=(0, 10))
     
     count_type_var = tk.StringVar(value="LINE")
     
-    tk.Radiobutton(count_type_frame, text="Line Crossing (Standard)", variable=count_type_var, 
+    ttk.Radiobutton(count_type_frame, text="Line Crossing (Standard)", variable=count_type_var, 
                   value="LINE", command=lambda: on_count_type_change("LINE")).pack(anchor='w')
-    tk.Radiobutton(count_type_frame, text="Crowd Count (Person in Frame)", variable=count_type_var, 
+    ttk.Radiobutton(count_type_frame, text="Crowd Count (Person in Frame)", variable=count_type_var, 
                   value="CROWD", command=lambda: on_count_type_change("CROWD")).pack(anchor='w')
     
     # Add description labels
-    desc_frame = tk.Frame(content_frame)
+    desc_frame = ttk.Frame(content_frame)
     desc_frame.pack(fill=tk.X, pady=(0, 10))
     
-    desc_text = tk.Text(desc_frame, height=4, wrap=tk.WORD, state=tk.DISABLED)
+    desc_text = tk.Text(desc_frame, height=4, wrap=tk.WORD, state=tk.DISABLED, bg="#FFFFFF", fg=TEXT_COLOR, font=LABEL_FONT, relief="solid", borderwidth=1)
     desc_text.pack(fill=tk.X)
     
     def update_description(mode):
@@ -76,76 +98,78 @@ def show_selection_window():
         desc_text.config(state=tk.DISABLED)
     
     # Mode selection
-    mode_frame = tk.LabelFrame(content_frame, text="Select Mode", padx=10, pady=10)
+    mode_frame = ttk.LabelFrame(content_frame, text="Select Mode", padding=(10, 10, 10, 10))
     mode_frame.pack(fill=tk.X, pady=(0, 10))
     
     mode_var = tk.IntVar(value=0)
 
-    tk.Radiobutton(mode_frame, text="Start Fresh", variable=mode_var, value=0).pack(anchor='w')
-    tk.Radiobutton(mode_frame, text="Custom Date Range", variable=mode_var, value=2).pack(anchor='w')
+    ttk.Radiobutton(mode_frame, text="Start Fresh", variable=mode_var, value=0).pack(anchor='w')
+    ttk.Radiobutton(mode_frame, text="Custom Date Range", variable=mode_var, value=2).pack(anchor='w')
 
     # Date and time selection for custom range
-    date_time_frame = tk.Frame(content_frame)
+    date_time_frame = ttk.Frame(content_frame)
     date_time_frame.pack(fill=tk.X, pady=10)
 
     # Start date/time frame
-    start_frame = tk.LabelFrame(date_time_frame, text="Start", padx=5, pady=5)
+    start_frame = ttk.LabelFrame(date_time_frame, text="Start", padding=(10, 5, 10, 5))
     start_frame.grid(row=0, column=0, padx=5, pady=5, sticky='w')
     
     # Start date
-    start_date_entry = DateEntry(start_frame, date_pattern='yyyy-MM-dd')
+    start_date_entry = DateEntry(start_frame, date_pattern='yyyy-MM-dd',
+                                background=PRIMARY_COLOR, foreground='white', borderwidth=2)
     start_date_entry.grid(row=0, column=0, padx=5, pady=5)
     
     # Start time
-    start_time_frame = tk.Frame(start_frame)
+    start_time_frame = ttk.Frame(start_frame)
     start_time_frame.grid(row=0, column=1, padx=5, pady=5)
     
-    start_hour = tk.Spinbox(start_time_frame, from_=0, to=23, width=2, format="%02.0f")
+    start_hour = tk.Spinbox(start_time_frame, from_=0, to=23, width=2, format="%02.0f", font=LABEL_FONT)
     start_hour.grid(row=0, column=0)
     start_hour.delete(0, tk.END)
     start_hour.insert(0, "00")
     
-    tk.Label(start_time_frame, text=":").grid(row=0, column=1)
+    ttk.Label(start_time_frame, text=":").grid(row=0, column=1)
     
-    start_min = tk.Spinbox(start_time_frame, from_=0, to=59, width=2, format="%02.0f")
+    start_min = tk.Spinbox(start_time_frame, from_=0, to=59, width=2, format="%02.0f", font=LABEL_FONT)
     start_min.grid(row=0, column=2)
     start_min.delete(0, tk.END)
     start_min.insert(0, "00")
     
-    tk.Label(start_time_frame, text=":").grid(row=0, column=3)
+    ttk.Label(start_time_frame, text=":").grid(row=0, column=3)
     
-    start_sec = tk.Spinbox(start_time_frame, from_=0, to=59, width=2, format="%02.0f")
+    start_sec = tk.Spinbox(start_time_frame, from_=0, to=59, width=2, format="%02.0f", font=LABEL_FONT)
     start_sec.grid(row=0, column=4)
     start_sec.delete(0, tk.END)
     start_sec.insert(0, "00")
     
     # End date/time frame
-    end_frame = tk.LabelFrame(date_time_frame, text="End", padx=5, pady=5)
+    end_frame = ttk.LabelFrame(date_time_frame, text="End", padding=(10, 5, 10, 5))
     end_frame.grid(row=1, column=0, padx=5, pady=5, sticky='w')
     
     # End date
-    end_date_entry = DateEntry(end_frame, date_pattern='yyyy-MM-dd')
+    end_date_entry = DateEntry(end_frame, date_pattern='yyyy-MM-dd',
+                              background=PRIMARY_COLOR, foreground='white', borderwidth=2)
     end_date_entry.grid(row=0, column=0, padx=5, pady=5)
     
     # End time
-    end_time_frame = tk.Frame(end_frame)
+    end_time_frame = ttk.Frame(end_frame)
     end_time_frame.grid(row=0, column=1, padx=5, pady=5)
     
-    end_hour = tk.Spinbox(end_time_frame, from_=0, to=23, width=2, format="%02.0f")
+    end_hour = tk.Spinbox(end_time_frame, from_=0, to=23, width=2, format="%02.0f", font=LABEL_FONT)
     end_hour.grid(row=0, column=0)
     end_hour.delete(0, tk.END)
     end_hour.insert(0, "23")
     
-    tk.Label(end_time_frame, text=":").grid(row=0, column=1)
+    ttk.Label(end_time_frame, text=":").grid(row=0, column=1)
     
-    end_min = tk.Spinbox(end_time_frame, from_=0, to=59, width=2, format="%02.0f")
+    end_min = tk.Spinbox(end_time_frame, from_=0, to=59, width=2, format="%02.0f", font=LABEL_FONT)
     end_min.grid(row=0, column=2)
     end_min.delete(0, tk.END)
     end_min.insert(0, "59")
     
-    tk.Label(end_time_frame, text=":").grid(row=0, column=3)
+    ttk.Label(end_time_frame, text=":").grid(row=0, column=3)
     
-    end_sec = tk.Spinbox(end_time_frame, from_=0, to=59, width=2, format="%02.0f")
+    end_sec = tk.Spinbox(end_time_frame, from_=0, to=59, width=2, format="%02.0f", font=LABEL_FONT)
     end_sec.grid(row=0, column=4)
     end_sec.delete(0, tk.END)
     end_sec.insert(0, "59")
@@ -235,12 +259,13 @@ def show_selection_window():
         query_win = tk.Toplevel(sel)
         query_win.title("Statistic Dashboard")
         query_win.geometry("1000x800")
+        query_win.configure(bg=BG_COLOR)
         query_win.grab_set()  # Make window modal
         
         # Create main canvas and scrollbar for the entire window
-        main_canvas = tk.Canvas(query_win)
+        main_canvas = tk.Canvas(query_win, bg=BG_COLOR, highlightthickness=0)
         scrollbar = ttk.Scrollbar(query_win, orient="vertical", command=main_canvas.yview)
-        scrollable_frame = ttk.Frame(main_canvas)
+        scrollable_frame = ttk.Frame(main_canvas, style="TFrame")
         
         # Configure scrolling
         scrollable_frame.bind(
@@ -276,65 +301,84 @@ def show_selection_window():
         main_canvas.bind('<Leave>', _unbind_mousewheel)
         
         # Create frames for better organization
-        control_frame = tk.Frame(scrollable_frame, padx=10, pady=10)
+        control_frame = ttk.Frame(scrollable_frame, padding=(10, 10, 10, 10))
         control_frame.pack(fill=tk.BOTH, expand=True)
         
-        result_frame = tk.Frame(scrollable_frame, padx=10)
+        result_frame = ttk.Frame(scrollable_frame, padding=(10, 0, 10, 0))
         result_frame.pack(fill=tk.X)
         
         # Limit the graph frame height so it doesn't expand infinitely
-        graph_frame = tk.Frame(scrollable_frame, padx=10, pady=10, height=500)
+        graph_frame = ttk.Frame(scrollable_frame, height=500)
         graph_frame.pack(fill=tk.X, pady=10)
         graph_frame.pack_propagate(False)  # Prevent frame from shrinking
     
         
-        download_button_frame = tk.Frame(scrollable_frame, bg="#f0f0f0", height=60)
+        download_button_frame = ttk.Frame(scrollable_frame, style="TFrame", height=60)
         download_button_frame.pack(fill='x', padx=10, pady=10)
-        download_button_frame.pack_propagate(False)  # Maintain fixed height
+        download_button_frame.pack_propagate(False)
+        print("download_button_frame packed")  # Maintain fixed height
         
-        # Initialize empty button frame with placeholder
-        placeholder_label = tk.Label(
+        # Create the download buttons
+        info_label = ttk.Label(
             download_button_frame,
-            text="Download options will appear here after fetching data",
-            font=("Arial", 9),
-            fg="#666666",
-            bg="#f0f0f0"
+            text="Download Options:",
+            font=BUTTON_FONT
         )
-        placeholder_label.pack(pady=15)
+        info_label.pack(side=tk.LEFT, padx=(10, 15), pady=15)
+        
+        csv_button = ttk.Button(
+            download_button_frame,
+            text="📊 Download CSV Data",
+            command=download_csv,
+            style="TButton"
+        )
+        csv_button.pack(side=tk.LEFT, padx=5, pady=15)
+        
+        png_button = ttk.Button(
+            download_button_frame,
+            text="📈 Save Graph as PNG",
+            command=download_png,
+            style="TButton"
+        )
+        png_button.pack(side=tk.LEFT, padx=5, pady=15)
+        
+        # Add some spacing on the right
+        spacer = ttk.Label(download_button_frame, text="")
+        spacer.pack(side=tk.RIGHT, padx=10)
 
         # --- Comparison Frame ---
-        comparison_frame = tk.Frame(scrollable_frame, padx=10, pady=10)
+        comparison_frame = ttk.Frame(scrollable_frame, padding=(10, 10, 10, 10))
         # This frame is packed later when the mode is changed to 'video'
 
-        comparison_control_frame = tk.LabelFrame(comparison_frame, text="Compare Analysis Runs", padx=10, pady=10)
+        comparison_control_frame = ttk.LabelFrame(comparison_frame, text="Compare Analysis Runs", padding=(10, 10, 10, 10))
         comparison_control_frame.pack(fill=tk.X, pady=10)
 
         # Source name label
-        source_name_label = tk.Label(comparison_control_frame, text="Source: ")
+        source_name_label = ttk.Label(comparison_control_frame, text="Source: ")
         source_name_label.grid(row=0, column=0, padx=5, pady=5, sticky='w')
 
         # Run A selection
-        tk.Label(comparison_control_frame, text="Run A:").grid(row=1, column=0, padx=5, pady=5, sticky='w')
+        ttk.Label(comparison_control_frame, text="Run A:").grid(row=1, column=0, padx=5, pady=5, sticky='w')
         run_a_var = tk.StringVar()
         run_a_combo = ttk.Combobox(comparison_control_frame, textvariable=run_a_var, state="readonly", width=10)
         run_a_combo.grid(row=1, column=1, padx=5, pady=5, sticky='w')
 
         # Run B selection
-        tk.Label(comparison_control_frame, text="Run B:").grid(row=1, column=2, padx=5, pady=5, sticky='w')
+        ttk.Label(comparison_control_frame, text="Run B:").grid(row=1, column=2, padx=5, pady=5, sticky='w')
         run_b_var = tk.StringVar()
         run_b_combo = ttk.Combobox(comparison_control_frame, textvariable=run_b_var, state="readonly", width=10)
         run_b_combo.grid(row=1, column=3, padx=5, pady=5, sticky='w')
 
         # Compare button
-        compare_button = tk.Button(comparison_control_frame, text="Compare", command=lambda: compare_runs(source_var.get(), run_a_var.get(), run_b_var.get(), comparison_graph_frame, scrollable_frame, _on_mousewheel))
+        compare_button = ttk.Button(comparison_control_frame, text="Compare", command=lambda: compare_runs(source_var.get(), run_a_var.get(), run_b_var.get(), comparison_graph_frame, scrollable_frame, _on_mousewheel), style="TButton")
         compare_button.grid(row=1, column=4, padx=10, pady=5, sticky='w')
 
-        comparison_graph_frame = tk.Frame(comparison_frame, padx=10, pady=10, height=400)
+        comparison_graph_frame = ttk.Frame(comparison_frame, height=400)
         comparison_graph_frame.pack(fill=tk.X, pady=10)
         comparison_graph_frame.pack_propagate(False)
         
         # Filtering options
-        filter_frame = tk.LabelFrame(control_frame, text="Filters", padx=10, pady=10)
+        filter_frame = ttk.LabelFrame(control_frame, text="Filters", padding=(10, 10, 10, 10))
         filter_frame.pack(fill=tk.X, pady=10)
         
         # Configure column weights for filter_frame to distribute space evenly
@@ -344,10 +388,10 @@ def show_selection_window():
         filter_frame.grid_columnconfigure(3, weight=1)
         
         # Mode selection
-        mode_frame = tk.Frame(filter_frame)
+        mode_frame = ttk.Frame(filter_frame)
         mode_frame.grid(row=0, column=0, padx=10, pady=5, sticky='ew')
         
-        tk.Label(mode_frame, text="Mode:").grid(row=0, column=0, sticky='w')
+        ttk.Label(mode_frame, text="Mode:").grid(row=0, column=0, sticky='w')
         mode_var = tk.StringVar(value="all")
         mode_combo = ttk.Combobox(mode_frame, textvariable=mode_var, values=["all", "crowd", "video"], 
                                  state="readonly", width=10)
@@ -355,10 +399,10 @@ def show_selection_window():
         mode_frame.grid_columnconfigure(1, weight=1)
         
         # Source selection
-        source_frame = tk.Frame(filter_frame)
-        source_frame.grid(row=0, column=1, padx=10, pady=5, sticky='ew')  # Changed to 'ew'
+        source_frame = ttk.Frame(filter_frame)
+        source_frame.grid(row=0, column=1, padx=10, pady=5, sticky='ew')
         
-        tk.Label(source_frame, text="Source:").grid(row=0, column=0, sticky='w')
+        ttk.Label(source_frame, text="Source:").grid(row=0, column=0, sticky='w')
         source_var = tk.StringVar(value="all")
         source_combo = ttk.Combobox(source_frame, textvariable=source_var, state="readonly", width=15)
         source_combo.grid(row=0, column=1, padx=5, sticky='ew')
@@ -366,10 +410,10 @@ def show_selection_window():
     
         
         # Direction selection
-        direction_frame = tk.Frame(filter_frame)
+        direction_frame = ttk.Frame(filter_frame)
         direction_frame.grid(row=0, column=2, padx=10, pady=5, sticky='ew')
         
-        tk.Label(direction_frame, text="Direction:").grid(row=0, column=0, sticky='w')
+        ttk.Label(direction_frame, text="Direction:").grid(row=0, column=0, sticky='w')
         direction_var = tk.StringVar(value="both")
         direction_combo = ttk.Combobox(direction_frame, textvariable=direction_var, 
                                     values=["both", "enter", "exit"], state="readonly", width=10)
@@ -378,10 +422,10 @@ def show_selection_window():
     
         
         # Run Index selection (initially hidden)
-        run_index_frame = tk.Frame(filter_frame)
+        run_index_frame = ttk.Frame(filter_frame)
         run_index_frame.grid(row=0, column=3, padx=10, pady=5, sticky='ew')
         
-        tk.Label(run_index_frame, text="Run:").grid(row=0, column=0, sticky='w')
+        ttk.Label(run_index_frame, text="Run:").grid(row=0, column=0, sticky='w')
         run_index_var = tk.StringVar(value="all")
         run_index_combo = ttk.Combobox(run_index_frame, textvariable=run_index_var, state="readonly", width=10)
         run_index_combo.grid(row=0, column=1, padx=5, sticky='ew')
@@ -389,7 +433,7 @@ def show_selection_window():
         run_index_frame.grid_forget()
         
         # Date and time selection
-        date_time_frame = tk.Frame(control_frame)
+        date_time_frame = ttk.Frame(control_frame)
         date_time_frame.pack(fill=tk.X, pady=10)
         
         # Configure column weights for date_time_frame
@@ -397,41 +441,43 @@ def show_selection_window():
         date_time_frame.grid_columnconfigure(1, weight=1)
         
         # Start date/time
-        start_frame = tk.LabelFrame(date_time_frame, text="Start", padx=5, pady=5)
+        start_frame = ttk.LabelFrame(date_time_frame, text="Start", padding=(10, 5, 10, 5))
         start_frame.grid(row=0, column=0, padx=10, pady=5, sticky='ew')
         
-        start_date_entry = DateEntry(start_frame, date_pattern='yyyy-MM-dd')
+        start_date_entry = DateEntry(start_frame, date_pattern='yyyy-MM-dd',
+                                    background=PRIMARY_COLOR, foreground='white', borderwidth=2)
         start_date_entry.grid(row=0, column=0, padx=5, pady=5)
 
-        time_frame = tk.Frame(start_frame)
+        time_frame = ttk.Frame(start_frame)
         time_frame.grid(row=0, column=1, padx=5, pady=5)
         
-        start_hour = tk.Spinbox(time_frame, from_=0, to=23, width=2, format="%02.0f")
+        start_hour = tk.Spinbox(time_frame, from_=0, to=23, width=2, format="%02.0f", font=LABEL_FONT)
         start_hour.grid(row=0, column=0)
-        tk.Label(time_frame, text=":").grid(row=0, column=1)
-        start_min = tk.Spinbox(time_frame, from_=0, to=59, width=2, format="%02.0f")
+        ttk.Label(time_frame, text=":").grid(row=0, column=1)
+        start_min = tk.Spinbox(time_frame, from_=0, to=59, width=2, format="%02.0f", font=LABEL_FONT)
         start_min.grid(row=0, column=2)
-        tk.Label(time_frame, text=":").grid(row=0, column=3)
-        start_sec = tk.Spinbox(time_frame, from_=0, to=59, width=2, format="%02.0f")
+        ttk.Label(time_frame, text=":").grid(row=0, column=3)
+        start_sec = tk.Spinbox(time_frame, from_=0, to=59, width=2, format="%02.0f", font=LABEL_FONT)
         start_sec.grid(row=0, column=4)
         
         # End date/time
-        end_frame = tk.LabelFrame(date_time_frame, text="End", padx=5, pady=5)
+        end_frame = ttk.LabelFrame(date_time_frame, text="End", padding=(10, 5, 10, 5))
         end_frame.grid(row=0, column=1, padx=10, pady=5, sticky='ew')
         
-        end_date_entry = DateEntry(end_frame, date_pattern='yyyy-MM-dd')
+        end_date_entry = DateEntry(end_frame, date_pattern='yyyy-MM-dd',
+                                  background=PRIMARY_COLOR, foreground='white', borderwidth=2)
         end_date_entry.grid(row=0, column=0, padx=5, pady=5)
 
-        time_frame = tk.Frame(end_frame)
+        time_frame = ttk.Frame(end_frame)
         time_frame.grid(row=0, column=1, padx=5, pady=5)
         
-        end_hour = tk.Spinbox(time_frame, from_=0, to=23, width=2, format="%02.0f")
+        end_hour = tk.Spinbox(time_frame, from_=0, to=23, width=2, format="%02.0f", font=LABEL_FONT)
         end_hour.grid(row=0, column=0)
-        tk.Label(time_frame, text=":").grid(row=0, column=1)
-        end_min = tk.Spinbox(time_frame, from_=0, to=59, width=2, format="%02.0f")
+        ttk.Label(time_frame, text=":").grid(row=0, column=1)
+        end_min = tk.Spinbox(time_frame, from_=0, to=59, width=2, format="%02.0f", font=LABEL_FONT)
         end_min.grid(row=0, column=2)
-        tk.Label(time_frame, text=":").grid(row=0, column=3)
-        end_sec = tk.Spinbox(time_frame, from_=0, to=59, width=2, format="%02.0f")
+        ttk.Label(time_frame, text=":").grid(row=0, column=3)
+        end_sec = tk.Spinbox(time_frame, from_=0, to=59, width=2, format="%02.0f", font=LABEL_FONT)
         end_sec.grid(row=0, column=4)
         
         # Function to populate run index dropdown based on selected video
@@ -616,7 +662,7 @@ def show_selection_window():
         populate_sources()
         
         # Resolution selection
-        resolution_frame = tk.LabelFrame(control_frame, text="Time Resolution", padx=5, pady=5)
+        resolution_frame = ttk.LabelFrame(control_frame, text="Time Resolution", padding=(10, 10, 10, 10))
         resolution_frame.pack(fill=tk.X, pady=10)
         
         # Configure resolution frame for better distribution
@@ -627,20 +673,18 @@ def show_selection_window():
         
         resolution_var = tk.StringVar(value="hour")
         
-        tk.Radiobutton(resolution_frame, text="Second", variable=resolution_var, value="second").grid(row=0, column=0, padx=10, sticky='w')
-        tk.Radiobutton(resolution_frame, text="Minute", variable=resolution_var, value="minute").grid(row=0, column=1, padx=10, sticky='w')
-        tk.Radiobutton(resolution_frame, text="Hour", variable=resolution_var, value="hour").grid(row=0, column=2, padx=10, sticky='w')
-        tk.Radiobutton(resolution_frame, text="Day", variable=resolution_var, value="day").grid(row=0, column=3, padx=10, sticky='w')
+        ttk.Radiobutton(resolution_frame, text="Second", variable=resolution_var, value="second").grid(row=0, column=0, padx=10, sticky='w')
+        ttk.Radiobutton(resolution_frame, text="Minute", variable=resolution_var, value="minute").grid(row=0, column=1, padx=10, sticky='w')
+        ttk.Radiobutton(resolution_frame, text="Hour", variable=resolution_var, value="hour").grid(row=0, column=2, padx=10, sticky='w')
+        ttk.Radiobutton(resolution_frame, text="Day", variable=resolution_var, value="day").grid(row=0, column=3, padx=10, sticky='w')
         
         # Visualization options
-        visual_frame = tk.LabelFrame(control_frame, text="Visualization", padx=5, pady=5)
+        visual_frame = ttk.LabelFrame(control_frame, text="Visualization", padding=(10, 10, 10, 10))
         visual_frame.pack(fill=tk.X, pady=10)
         
         visual_var = tk.StringVar(value="area")
         
-        # tk.Radiobutton(visual_frame, text="Bar Chart", variable=visual_var, value="bar").grid(row=0, column=0, padx=10)
-        # tk.Radiobutton(visual_frame, text="Line Chart", variable=visual_var, value="line").grid(row=0, column=1, padx=10)
-        tk.Radiobutton(visual_frame, text="Area Chart", variable=visual_var, value="area").grid(row=0, column=2, padx=10, sticky='w')
+        ttk.Radiobutton(visual_frame, text="Area Chart", variable=visual_var, value="area").grid(row=0, column=2, padx=10, sticky='w')
         
         # Validated fetch function
         def validated_fetch_data():
@@ -670,16 +714,16 @@ def show_selection_window():
         
         
         # Fetch button
-        fetch_button = tk.Button(
+        fetch_button = ttk.Button(
             control_frame, 
             text="Fetch Data", 
             command=validated_fetch_data,
-            bg="#4CAF50", fg="white", padx=10, pady=5
+            style="TButton"
         )
         fetch_button.pack(pady=10)
         
         # Results display
-        result_label = tk.Label(result_frame, text="Total Entries: 0", font=("Helvetica", 12))
+        result_label = ttk.Label(result_frame, text="Total Entries: 0", font=TITLE_FONT)
         result_label.pack(pady=5)
         
         # Default values - today
@@ -727,8 +771,16 @@ def show_selection_window():
         start_timestamp = f"{start_date}T{start_time}"
         end_timestamp = f"{end_date}T{end_time}"
         
+        # Apply filters
+        filters = {
+            'mode_type': mode_type if mode_type != 'all' else None,
+            'source': source if source != 'all' else None,
+            'direction': direction if direction != 'both' else None
+        }
+        
         # For video mode with specific run_index, get the actual timestamps from video_analysis
         if mode_type == "video" and source != "all" and run_index != "all":
+            filters['run_index'] = int(run_index)
             try:
                 # Get the specific timestamps for this video and run
                 video_start_dt, video_end_dt = get_video_timestamps_by_run(source, int(run_index))
@@ -739,14 +791,6 @@ def show_selection_window():
             except Exception as e:
                 print(f"Error getting video timestamps for filtering: {e}")
         
-        
-        # Apply filters
-        filters = {
-            'mode_type': mode_type if mode_type != 'all' else None,
-            'source': source if source != 'all' else None,
-            'direction': direction if direction != 'both' else None
-        }
-        
         count = get_total_counts_filtered(start_timestamp, end_timestamp, filters)
 
         result_label.config(text=f"Total Entries: {count}")
@@ -754,6 +798,9 @@ def show_selection_window():
         # Clear previous graph
         for widget in graph_frame.winfo_children():
             widget.destroy()
+            
+        # Hide download buttons initially
+        download_button_frame.pack_forget()
             
         # Exit if no data
         if count == 0:
@@ -923,6 +970,7 @@ def show_selection_window():
         }
         
         # Create figure
+        global fig
         fig, ax = plt.subplots(figsize=(12, 6))
         
         if visualization == "area":
@@ -1081,110 +1129,129 @@ def show_selection_window():
         canvas.draw()
         canvas_widget = canvas.get_tk_widget()
         canvas_widget.pack(fill='both', expand=True, padx=5, pady=5)
+        
+        # At the end of fetch_data, after creating the graph, show download buttons
+        download_button_frame.pack(fill='x', padx=10, pady=10)
     
-        
-        if download_button_frame:
-            # Clear existing buttons
-            for widget in download_button_frame.winfo_children():
-                widget.destroy()
-            
-            def download_csv():
-                try:
-                    file_path = filedialog.asksaveasfilename(
-                        defaultextension=".csv",
-                        filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
-                        title="Save graph data as CSV"
-                    )
-                    
-                    if file_path:
-                        with open(file_path, 'w', newline='', encoding='utf-8') as csvfile:
-                            writer = csv.writer(csvfile)
-                            
-                            # Write header with metadata
-                            writer.writerow([f"# {current_graph_data['title']}"])
-                            writer.writerow([f"# Resolution: {current_graph_data['resolution']}"])
-                            writer.writerow([f"# Total entries: {sum(current_graph_data['counts'])}"])
-                            writer.writerow([f"# Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"])
-                            writer.writerow([])  # Empty row
-                            
-                            # Write column headers
-                            writer.writerow(['Time', 'Count'])
-                            
-                            # Write data
-                            for time_period, count in zip(current_graph_data['time_periods'], current_graph_data['counts']):
-                                if current_graph_data['resolution'] == "second":
-                                    time_str = time_period.strftime('%Y-%m-%d %H:%M:%S')
-                                elif current_graph_data['resolution'] == "minute":
-                                    time_str = time_period.strftime('%Y-%m-%d %H:%M')
-                                elif current_graph_data['resolution'] == "hour":
-                                    time_str = time_period.strftime('%Y-%m-%d %H:00')
-                                else:  # day
-                                    time_str = time_period.strftime('%Y-%m-%d')
-                                
-                                writer.writerow([time_str, count])
-                        
-                        messagebox.showinfo("Success", f"Data exported successfully to:\n{file_path}")
-                
-                except Exception as e:
-                    messagebox.showerror("Error", f"Failed to export data:\n{str(e)}")
-            
-            def download_png():
-                try:
-                    file_path = filedialog.asksaveasfilename(
-                        defaultextension=".png",
-                        filetypes=[("PNG files", "*.png"), ("All files", "*.*")],
-                        title="Save graph as PNG"
-                    )
-                    
-                    if file_path:
-                        fig.savefig(file_path, dpi=300, bbox_inches='tight')
-                        messagebox.showinfo("Success", f"Graph saved successfully to:\n{file_path}")
-                
-                except Exception as e:
-                    messagebox.showerror("Error", f"Failed to save graph:\n{str(e)}")
-            
-            # Create the download buttons
-            info_label = tk.Label(
-                download_button_frame,
-                text="Download Options:",
-                font=("Arial", 10, "bold"),
-                fg="#333333",
-                bg="#f0f0f0"
-            )
-            info_label.pack(side=tk.LEFT, padx=(10, 15), pady=15)
-            
-            csv_button = tk.Button(
-                download_button_frame,
-                text="📊 Download CSV Data",
-                command=download_csv,
-                bg="#2196F3", fg="white", 
-                font=("Arial", 9, "bold"),
-                padx=12, pady=8,
-                relief="raised",
-                borderwidth=2,
-                cursor="hand2"
-            )
-            csv_button.pack(side=tk.LEFT, padx=5, pady=15)
-            
-            png_button = tk.Button(
-                download_button_frame,
-                text="📈 Save Graph as PNG",
-                command=download_png,
-                bg="#FF9800", fg="white",
-                font=("Arial", 9, "bold"), 
-                padx=12, pady=8,
-                relief="raised",
-                borderwidth=2,
-                cursor="hand2"
-            )
-            png_button.pack(side=tk.LEFT, padx=5, pady=15)
-            
-            # Add some spacing on the right
-            spacer = tk.Label(download_button_frame, bg="#f0f0f0")
-            spacer.pack(side=tk.RIGHT, padx=10)
-        
         # Close the matplotlib figure to prevent memory leaks
         plt.close(fig)
+
+    def download_csv():
+        try:
+            if current_graph_data is None:
+                messagebox.showwarning("Warning", "No graph data available to export.")
+                return
+            
+            file_path = filedialog.asksaveasfilename(
+                defaultextension=".csv",
+                filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
+                title="Save graph data as CSV"
+            )
+            
+            if file_path:
+                with open(file_path, 'w', newline='', encoding='utf-8') as csvfile:
+                    writer = csv.writer(csvfile)
+                    
+                    # Write header with metadata
+                    writer.writerow([f"# {current_graph_data['title']}"])
+                    writer.writerow([f"# Resolution: {current_graph_data['resolution']}"])
+                    writer.writerow([f"# Total entries: {sum(current_graph_data['counts'])}"])
+                    writer.writerow([f"# Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"])
+                    writer.writerow([])  # Empty row
+                    
+                    # Write column headers
+                    writer.writerow(['Time', 'Count'])
+                    
+                    # Write data
+                    for time_period, count in zip(current_graph_data['time_periods'], current_graph_data['counts']):
+                        if current_graph_data['resolution'] == "second":
+                            time_str = time_period.strftime('%Y-%m-%d %H:%M:%S')
+                        elif current_graph_data['resolution'] == "minute":
+                            time_str = time_period.strftime('%Y-%m-%d %H:%M')
+                        elif current_graph_data['resolution'] == "hour":
+                            time_str = time_period.strftime('%Y-%m-%d %H:00')
+                        else:  # day
+                            time_str = time_period.strftime('%Y-%m-%d')
+                        
+                        writer.writerow([time_str, count])
+                
+                messagebox.showinfo("Success", f"Data exported successfully to:\n{file_path}")
+        
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to export data:\n{str(e)}")
+    
+    def download_png():
+        try:
+            if 'fig' not in globals() or fig is None:
+                messagebox.showwarning("Warning", "No graph available to save.")
+                return
+            
+            file_path = filedialog.asksaveasfilename(
+                defaultextension=".png",
+                filetypes=[("PNG files", "*.png"), ("All files", "*.*")],
+                title="Save graph as PNG"
+            )
+            
+            if file_path:
+                fig.savefig(file_path, dpi=300, bbox_inches='tight')
+                messagebox.showinfo("Success", f"Graph saved successfully to:\n{file_path}")
+        
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to save graph:\n{str(e)}")
+            
+    # comparison download functions
+    def download_comparison_csv(run_a_data, run_b_data, video_name, run_a_index, run_b_index):
+        try:
+            file_path = filedialog.asksaveasfilename(
+                defaultextension=".csv",
+                filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
+                title="Save comparison data as CSV"
+            )
+            
+            if file_path:
+                with open(file_path, 'w', newline='', encoding='utf-8') as csvfile:
+                    writer = csv.writer(csvfile)
+                    
+                    # Write header with metadata
+                    writer.writerow([f"# Comparison: {video_name} - Run {run_a_index} vs Run {run_b_index}"])
+                    writer.writerow([f"# Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"])
+                    writer.writerow([])  # Empty row
+                    
+                    # Write column headers
+                    writer.writerow(['Metric', f'Run {run_a_index}', f'Run {run_b_index}'])
+                    
+                    # Get all metrics from both runs
+                    all_metrics = set(run_a_data.keys()) | set(run_b_data.keys())
+                    
+                    # Write data
+                    for metric in sorted(all_metrics):
+                        value_a = run_a_data.get(metric, "N/A")
+                        value_b = run_b_data.get(metric, "N/A")
+                        writer.writerow([metric.replace("_", " ").title(), value_a, value_b])
+                
+                messagebox.showinfo("Success", f"Comparison data exported successfully to:\n{file_path}")
+        
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to export comparison data:\n{str(e)}")
+
+    def download_comparison_png(comparison_fig):
+        try:
+            if comparison_fig is None:
+                messagebox.showwarning("Warning", "No comparison graph available to save.")
+                return
+                
+            file_path = filedialog.asksaveasfilename(
+                defaultextension=".png",
+                filetypes=[("PNG files", "*.png"), ("All files", "*.*")],
+                title="Save comparison graph as PNG"
+            )
+            
+            if file_path:
+                comparison_fig.savefig(file_path, dpi=300, bbox_inches='tight')
+                messagebox.showinfo("Success", f"Comparison graph saved successfully to:\n{file_path}")
+        
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to save comparison graph:\n{str(e)}")
 
     def compare_runs(video_name, run_a_index, run_b_index, comparison_graph_frame, scrollable_frame, _on_mousewheel):
         if not video_name or run_a_index == "all" or run_b_index == "all":
@@ -1207,46 +1274,84 @@ def show_selection_window():
             for widget in comparison_graph_frame.winfo_children():
                 widget.destroy()
 
-            # Create a frame for the chart
-            comparison_chart_frame = tk.Frame(comparison_graph_frame)
-            comparison_chart_frame.pack(side=tk.TOP, fill="x", expand=False)
+            # Configure the grid layout for the comparison_graph_frame
+            comparison_graph_frame.grid_rowconfigure(0, weight=1)
+            comparison_graph_frame.grid_rowconfigure(1, weight=1)
+            comparison_graph_frame.grid_columnconfigure(2, weight=0) # Download buttons
+            comparison_graph_frame.grid_columnconfigure(0, weight=1)
 
-            # Numerical metrics for the bar chart
-            numerical_metrics = [
-                'total_count', 'ground_truth_count', 'precision', 'recall', 'f1_score', 'processing_time_ms'
-            ]
+            # Create a frame for the chart
+            comparison_chart_frame = ttk.Frame(comparison_graph_frame)
+            comparison_chart_frame.grid(row=0, column=0, sticky="nsew")
+            
+            # Check if ground truth data is available
+            has_ground_truth_a = run_a_data.get('ground_truth_count') is not None
+            has_ground_truth_b = run_b_data.get('ground_truth_count') is not None
+            has_ground_truth = has_ground_truth_a and has_ground_truth_b
+            
+            if has_ground_truth:
+                # Full metrics including precision, recall, f1_score
+                numerical_metrics = [
+                    'total_count', 'ground_truth_count', 'precision', 'recall', 'f1_score', 'processing_time_ms'
+                ]
+            else:
+                # Limited metrics when ground truth is not available
+                numerical_metrics = ['total_count', 'processing_time_ms']
+            
             
             labels = [metric.replace("_", " ").title() for metric in numerical_metrics]
-            run_a_values = [run_a_data.get(metric, 0) for metric in numerical_metrics]
-            run_b_values = [run_b_data.get(metric, 0) for metric in numerical_metrics]
+            
+            # Handle null values - replace with 0 for display
+            run_a_values = []
+            run_b_values = []
+            
+            for metric in numerical_metrics:
+                val_a = run_a_data.get(metric, 0)
+                val_b = run_b_data.get(metric, 0)
+                
+                # Replace None with 0 for numeric display
+                run_a_values.append(0 if val_a is None else val_a)
+                run_b_values.append(0 if val_b is None else val_b)
 
             x = np.arange(len(labels))
             width = 0.35
 
-            fig, ax = plt.subplots(figsize=(12, 6))
+            comparison_fig, ax = plt.subplots(figsize=(12, 6))
             rects1 = ax.bar(x - width/2, run_a_values, width, label=f'Run {run_a_index}')
             rects2 = ax.bar(x + width/2, run_b_values, width, label=f'Run {run_b_index}')
 
             ax.set_ylabel('Scores')
-            ax.set_title(f'Comparison of Run {run_a_index} and Run {run_b_index} for {video_name}')
+            title = f'Comparison of Run {run_a_index} and Run {run_b_index} for {video_name}'
+            if not has_ground_truth:
+                title += ' (Limited metrics - No ground truth data)'
+            ax.set_title(title)
             ax.set_xticks(x)
             ax.set_xticklabels(labels, rotation=45, ha="right")
             ax.legend()
+            
+            # Custom bar labels - show "N/A" for null values
+            def custom_bar_label(rects, original_values):
+                for rect, val in zip(rects, original_values):
+                    height = rect.get_height()
+                    label = 'N/A' if val is None else f'{val:.2f}' if isinstance(val, float) else str(val)
+                    ax.annotate(label,
+                                xy=(rect.get_x() + rect.get_width() / 2, height),
+                                xytext=(0, 3),  # 3 points vertical offset
+                                textcoords="offset points",
+                                ha='center', va='bottom')
+                    
+            custom_bar_label(rects1, [run_a_data.get(m) for m in numerical_metrics])
+            custom_bar_label(rects2, [run_b_data.get(m) for m in numerical_metrics])
 
-            ax.bar_label(rects1, padding=3)
-            ax.bar_label(rects2, padding=3)
+            comparison_fig.tight_layout()
 
-            fig.tight_layout()
-
-            canvas = FigureCanvasTkAgg(fig, master=comparison_chart_frame)
+            canvas = FigureCanvasTkAgg(comparison_fig, master=comparison_chart_frame)
             canvas.draw()
             canvas.get_tk_widget().pack(fill='both', expand=True)
-            
-            plt.close(fig)
 
             # Create a frame for the Treeview
-            comparison_tree_frame = tk.Frame(comparison_graph_frame)
-            comparison_tree_frame.pack(side=tk.TOP, fill="both", expand=True)
+            comparison_tree_frame = ttk.Frame(comparison_graph_frame)
+            comparison_tree_frame.grid(row=1, column=0, sticky="nsew")
 
             # Other metrics for the Treeview
             other_metrics = [
@@ -1272,6 +1377,9 @@ def show_selection_window():
             for metric in other_metrics:
                 value_a = run_a_data.get(metric, "N/A")
                 value_b = run_b_data.get(metric, "N/A")
+                # Handle None values
+                value_a = "N/A" if value_a is None else value_a
+                value_b = "N/A" if value_b is None else value_b
                 tree.insert("", "end", values=(metric.replace("_", " ").title(), value_a, value_b))
                 
             def _on_tree_mousewheel(event):
@@ -1286,9 +1394,40 @@ def show_selection_window():
 
             tree.bind('<Enter>', _bind_tree_mousewheel)
             tree.bind('<Leave>', _unbind_tree_mousewheel)
+            
+            # Add download buttons for comparison
+            comparison_download_frame = ttk.Frame(comparison_graph_frame, height=60)
+            comparison_download_frame.grid(row=2, column=0, sticky="ew", padx=10, pady=10)
+            comparison_download_frame.grid_propagate(False)
+
+            # Download buttons
+            info_label = ttk.Label(
+                comparison_download_frame,
+                text="Download Comparison:",
+                font=BUTTON_FONT
+            )
+            info_label.pack(side=tk.LEFT, padx=(10, 15), pady=15)
+
+            csv_button = ttk.Button(
+                comparison_download_frame,
+                text="📊 Download Comparison CSV",
+                command=lambda: download_comparison_csv(run_a_data, run_b_data, video_name, run_a_index, run_b_index),
+                style="TButton"
+            )
+            csv_button.pack(side=tk.LEFT, padx=5, pady=15)
+
+            png_button = ttk.Button(
+                comparison_download_frame,
+                text="📈 Save Comparison PNG",
+                command=lambda: download_comparison_png(comparison_fig),
+                style="TButton"
+            )
+            png_button.pack(side=tk.LEFT, padx=5, pady=15)
 
         except Exception as e:
             messagebox.showerror("Error", f"Failed to compare runs: {e}")
+            
+        plt.close(comparison_fig)
 
 
     # Validation function for this window
@@ -1360,40 +1499,40 @@ def show_selection_window():
         app = EmbeddedFrame(crowd_win, source_index=0, mode=COUNT_MODE, on_close=on_counting_close)
         
     # Add buttons to selection window
-    button_frame = tk.Frame(content_frame)
+    button_frame = ttk.Frame(content_frame)
     button_frame.pack(fill=tk.X, pady=10)
 
-    query_button = tk.Button(
+    query_button = ttk.Button(
         button_frame, 
         text="Statistic Dashboard", 
         command=open_query_window,
-        width=15
+        style="TButton"
     )
     query_button.pack(side=tk.LEFT, padx=5)
 
-    start_button = tk.Button(
+    start_button = ttk.Button(
         button_frame, 
         text="Start", 
         command=validate_and_proceed,
-        width=15
+        style="TButton"
     )
     start_button.pack(side=tk.RIGHT, padx=5)
     
     # Video Analysis button
-    model_button = tk.Button(
+    model_button = ttk.Button(
         button_frame,
         text="Model Setting",
         command=lambda: open_model_setting(sel),
-        width=15
+        style="TButton"
     )
     model_button.pack(side=tk.LEFT, padx=5)
     
     # Video Analysis button
-    video_button = tk.Button(
+    video_button = ttk.Button(
         button_frame,
         text="Video Analysis",
         command=lambda: open_video_analysis(sel),
-        width=15
+        style="TButton"
     )
     video_button.pack(side=tk.LEFT, padx=5)
 
@@ -1474,20 +1613,21 @@ def open_model_setting(sel):
 
     va_win = tk.Toplevel(sel)
     va_win.title("Model & Tracker Setting")
-    va_win.geometry("400x600")
+    va_win.geometry("400x650")
+    va_win.configure(bg=BG_COLOR)
     va_win.protocol("WM_DELETE_WINDOW", on_close)
     
     # --- Model Defaults Section ---
-    section = tk.LabelFrame(va_win, text="Model Settings", padx=10, pady=10)
+    section = ttk.LabelFrame(va_win, text="Model Settings", padding=(10, 10, 10, 10))
     section.pack(fill="x", padx=10, pady=(10,5))
 
     # --- Class Selection ---
-    tk.Label(section, text="Select Class:").grid(row=0, column=0, sticky="w")
+    ttk.Label(section, text="Select Class:").grid(row=0, column=0, sticky="w")
     class_var = tk.StringVar(value="head")
     ttk.OptionMenu(section, class_var, "head", "head", "person").grid(row=0, column=1, sticky="ew")
 
     # --- Model Selection ---
-    tk.Label(section, text="Select Model:").grid(row=1, column=0, sticky="w", pady=(5,0))
+    ttk.Label(section, text="Select Model:").grid(row=1, column=0, sticky="w", pady=(5,0))
     model_var = tk.StringVar(value=config.get_model_name())
     head_models   = ["headv1.pt", "headv2.pt", "headv3.pt"]
     person_models = ["yolo11n.pt", "yolo11s.pt", "yolo11m.pt", "yolo11l.pt"]
@@ -1504,12 +1644,12 @@ def open_model_setting(sel):
     class_var.trace_add("write", refresh_models)
 
      # Confidence & IoU
-    tk.Label(section, text="Confidence:").grid(row=2, column=0, sticky="w", pady=(10,0))
-    conf_entry = tk.Entry(section); conf_entry.grid(row=2, column=1, sticky="ew", pady=(10,0))
+    ttk.Label(section, text="Confidence:").grid(row=2, column=0, sticky="w", pady=(10,0))
+    conf_entry = ttk.Entry(section); conf_entry.grid(row=2, column=1, sticky="ew", pady=(10,0))
     conf_entry.insert(0, str(config.get_model_conf()))
 
-    tk.Label(section, text="IoU:").grid(row=3, column=0, sticky="w", pady=(5,0))
-    iou_entry = tk.Entry(section); iou_entry.grid(row=3, column=1, sticky="ew", pady=(5,0))
+    ttk.Label(section, text="IoU:").grid(row=3, column=0, sticky="w", pady=(5,0))
+    iou_entry = ttk.Entry(section); iou_entry.grid(row=3, column=1, sticky="ew", pady=(5,0))
     iou_entry.insert(0, str(config.get_model_iou()))
 
     for col in (0,1):
@@ -1517,14 +1657,14 @@ def open_model_setting(sel):
 
 
     # --- Tracker Settings Section ---
-    tsec = tk.LabelFrame(va_win, text="Tracker Settings", padx=10, pady=10)
+    tsec = ttk.LabelFrame(va_win, text="Tracker Settings", padding=(10, 10, 10, 10))
     tsec.pack(fill="x", padx=10, pady=(5,10))
 
     # Load current tracker yaml to pre-populate
     current = tracker_config.get_tracker_settings()
 
     # Tracker Type
-    tk.Label(tsec, text="Type:").grid(row=0, column=0, sticky="w")
+    ttk.Label(tsec, text="Type:").grid(row=0, column=0, sticky="w")
     tracker_type_var = tk.StringVar(value=current.get("tracker_type"))
     ttk.OptionMenu(tsec, tracker_type_var, tracker_type_var.get(), "botsort", "bytetrack").grid(row=0, column=1, sticky="ew")
 
@@ -1538,14 +1678,14 @@ def open_model_setting(sel):
     ]
     entries = {}
     for i, (lbl, key) in enumerate(labels, start=1):
-        tk.Label(tsec, text=lbl+":").grid(row=i, column=0, sticky="w", pady=(5,0))
-        e = tk.Entry(tsec); e.grid(row=i, column=1, sticky="ew", pady=(5,0))
+        ttk.Label(tsec, text=lbl+":").grid(row=i, column=0, sticky="w", pady=(5,0))
+        e = ttk.Entry(tsec); e.grid(row=i, column=1, sticky="ew", pady=(5,0))
         e.insert(0, str(current.get(key,"")))
         entries[key] = e
 
     # Fuse score checkbox
     fuse_var = tk.BooleanVar(value=bool(current.get("fuse_score", True)))
-    tk.Checkbutton(tsec, text="Fuse Score", variable=fuse_var).grid(row=6, column=0, columnspan=2, sticky="w", pady=(5,0))
+    ttk.Checkbutton(tsec, text="Fuse Score", variable=fuse_var).grid(row=6, column=0, columnspan=2, sticky="w", pady=(5,0))
 
     # GMC / Proximity / Appearance / with_reid / model
     extra = [
@@ -1555,16 +1695,16 @@ def open_model_setting(sel):
     ]
     extra_entries = {}
     for i, (lbl, key) in enumerate(extra, start=7):
-        tk.Label(tsec, text=lbl+":").grid(row=i, column=0, sticky="w", pady=(5,0))
-        e = tk.Entry(tsec); e.grid(row=i, column=1, sticky="ew", pady=(5,0))
+        ttk.Label(tsec, text=lbl+":").grid(row=i, column=0, sticky="w", pady=(5,0))
+        e = ttk.Entry(tsec); e.grid(row=i, column=1, sticky="ew", pady=(5,0))
         e.insert(0, str(current.get(key,"")))
         extra_entries[key] = e
 
     reid_var = tk.BooleanVar(value=bool(current.get("with_reid", True)))
-    tk.Checkbutton(tsec, text="Use ReID", variable=reid_var).grid(row=10, column=0, columnspan=2, sticky="w", pady=(5,0))
+    ttk.Checkbutton(tsec, text="Use ReID", variable=reid_var).grid(row=10, column=0, columnspan=2, sticky="w", pady=(5,0))
 
     model_tracker_var = tk.StringVar(value=current.get("model","auto"))
-    tk.Label(tsec, text="ReID Model:").grid(row=11, column=0, sticky="w", pady=(5,0))
+    ttk.Label(tsec, text="ReID Model:").grid(row=11, column=0, sticky="w", pady=(5,0))
     ttk.OptionMenu(tsec, model_tracker_var, model_tracker_var.get(), "auto").grid(row=11, column=1, sticky="ew", pady=(5,0))
 
     for col in (0,1):
@@ -1572,10 +1712,10 @@ def open_model_setting(sel):
 
 
     # --- Buttons ---
-    btns = tk.Frame(va_win)
+    btns = ttk.Frame(va_win)
     btns.pack(fill="x", pady=10, padx=10)
-    tk.Button(btns, text="Reset", width=10, command=lambda: do_reset()).pack(side=tk.LEFT)
-    tk.Button(btns, text="Update Changes", width=15, command=lambda: do_update()).pack(side=tk.RIGHT)
+    ttk.Button(btns, text="Reset", command=lambda: do_reset()).pack(side=tk.LEFT)
+    ttk.Button(btns, text="Update Changes", command=lambda: do_update()).pack(side=tk.RIGHT)
 
     def do_reset():
         # model defaults
@@ -1657,53 +1797,57 @@ def open_video_analysis(sel):
     # Create Video Analysis window
     va_win = tk.Toplevel(sel)
     va_win.title("Video Analysis")
-    va_win.geometry("350x350")
+    va_win.geometry("350x400")
+    va_win.configure(bg=BG_COLOR)
     va_win.protocol("WM_DELETE_WINDOW", on_close)
     
+    content_frame = ttk.Frame(va_win, padding=(15, 15, 15, 15))
+    content_frame.pack(fill="both", expand=True)
+    
     # --- Video Selection ---
-    tk.Label(va_win, text="Select Video:", font=("Arial", 10, "bold")).pack(anchor="w", pady=(15,5), padx=15)
+    ttk.Label(content_frame, text="Select Video:", font=BUTTON_FONT).pack(anchor="w", pady=(0,5))
     video_files = [f for f in os.listdir("video") if f.lower().endswith((".mp4", ".avi"))]
     video_var = tk.StringVar(value=video_files[0] if video_files else "")
-    video_menu = ttk.OptionMenu(va_win, video_var, video_var.get(), *video_files)
-    video_menu.pack(fill="x", padx=15, pady=(0,10))
+    video_menu = ttk.OptionMenu(content_frame, video_var, video_var.get(), *video_files)
+    video_menu.pack(fill="x", pady=(0,10))
     
     # --- Recording Options ---
-    recording_frame = tk.Frame(va_win)
-    recording_frame.pack(fill="x", padx=15, pady=(0,10))
+    recording_frame = ttk.Frame(content_frame)
+    recording_frame.pack(fill="x", pady=(0,10))
     
-    tk.Label(recording_frame, text="Recording Options:", font=("Arial", 10, "bold")).pack(anchor="w")
+    ttk.Label(recording_frame, text="Recording Options:", font=BUTTON_FONT).pack(anchor="w")
     
     record_on_start_var = tk.BooleanVar(value=False)
-    record_checkbox = tk.Checkbutton(recording_frame, 
+    record_checkbox = ttk.Checkbutton(recording_frame, 
                                    text="Start recording when analysis begins", 
                                    variable=record_on_start_var)
     record_checkbox.pack(anchor="w", pady=(5,0))
     
     # --- Ground Truth Count Input ---
-    ground_truth_frame = tk.Frame(va_win)
-    ground_truth_frame.pack(fill="x", padx=15, pady=(0,10))
+    ground_truth_frame = ttk.Frame(content_frame)
+    ground_truth_frame.pack(fill="x", pady=(0,10))
     
-    tk.Label(ground_truth_frame, text="Ground Truth Count:", font=("Arial", 10, "bold")).pack(anchor="w")
+    ttk.Label(ground_truth_frame, text="Ground Truth Count:", font=BUTTON_FONT).pack(anchor="w")
     
     # Create frame for input and info
-    input_frame = tk.Frame(ground_truth_frame)
+    input_frame = ttk.Frame(ground_truth_frame)
     input_frame.pack(fill="x", pady=(5,0))
     
     ground_truth_var = tk.StringVar(value="")
-    ground_truth_entry = tk.Entry(input_frame, textvariable=ground_truth_var, width=10)
+    ground_truth_entry = ttk.Entry(input_frame, textvariable=ground_truth_var, width=10)
     ground_truth_entry.pack(side="left")
     
     # Info label
-    info_label = tk.Label(input_frame, text="(Expected number of people/objects)", 
-                         font=("Arial", 8), fg="gray")
+    info_label = ttk.Label(input_frame, text="(Expected number of people/objects)", 
+                         font=LABEL_FONT)
     info_label.pack(side="left", padx=(10,0))
     
     # Optional checkbox
-    optional_frame = tk.Frame(ground_truth_frame)
+    optional_frame = ttk.Frame(ground_truth_frame)
     optional_frame.pack(fill="x", pady=(5,0))
     
     use_ground_truth_var = tk.BooleanVar(value=False)
-    optional_check = tk.Checkbutton(optional_frame, 
+    optional_check = ttk.Checkbutton(optional_frame, 
                                 text="Enable performance metrics calculation", 
                                 variable=use_ground_truth_var,
                                 command=lambda: toggle_ground_truth_input()
@@ -1713,22 +1857,22 @@ def open_video_analysis(sel):
     def toggle_ground_truth_input():
         if use_ground_truth_var.get():
             ground_truth_entry.config(state="normal")
-            info_label.config(fg="black")
+            info_label.config(style="TLabel") # Revert to default style
         else:
             ground_truth_entry.config(state="disabled")
-            info_label.config(fg="gray")
+            info_label.config(style="Disabled.TLabel") # Apply a disabled style
             ground_truth_var.set("")
     
     # Initially disable ground truth input
     toggle_ground_truth_input()
     
     # --- Run Index Information ---
-    run_info_frame = tk.Frame(va_win)
-    run_info_frame.pack(fill="x", padx=15, pady=(0,15))
+    run_info_frame = ttk.Frame(content_frame)
+    run_info_frame.pack(fill="x", pady=(0,15))
     
-    tk.Label(run_info_frame, text="Run Information:", font=("Arial", 10, "bold")).pack(anchor="w")
+    ttk.Label(run_info_frame, text="Run Information:", font=BUTTON_FONT).pack(anchor="w")
     
-    run_index_label = tk.Label(run_info_frame, text="", font=("Arial", 9), fg="blue")
+    run_index_label = ttk.Label(run_info_frame, text="", font=LABEL_FONT, foreground=PRIMARY_COLOR)
     run_index_label.pack(anchor="w", pady=(2,0))
     
     def update_run_info(*args):
@@ -1754,11 +1898,11 @@ def open_video_analysis(sel):
     update_run_info()  # Initial update
     
     # Buttons: Start analysis & Cancel
-    btn_frame = tk.Frame(va_win)
-    btn_frame.pack(fill="x", pady=15, padx=15)
+    btn_frame = ttk.Frame(content_frame)
+    btn_frame.pack(fill="x", pady=15)
     
-    tk.Button(btn_frame, text="Cancel", width=12, command=on_close).pack(side=tk.LEFT)
-    tk.Button(btn_frame, text="Start Analysis", width=15, command=lambda: on_submit()).pack(side=tk.RIGHT)
+    ttk.Button(btn_frame, text="Cancel", style="TButton", command=on_close).pack(side=tk.LEFT)
+    ttk.Button(btn_frame, text="Start Analysis", style="TButton", command=lambda: on_submit()).pack(side=tk.RIGHT)
     
     def validate_input():
         """Validate user input before starting analysis"""
