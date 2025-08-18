@@ -312,11 +312,9 @@ def show_selection_window():
         graph_frame.pack(fill=tk.X, pady=10)
         graph_frame.pack_propagate(False)  # Prevent frame from shrinking
     
-        
         download_button_frame = ttk.Frame(scrollable_frame, style="TFrame", height=60)
         download_button_frame.pack(fill='x', padx=10, pady=10)
         download_button_frame.pack_propagate(False)
-        print("download_button_frame packed")  # Maintain fixed height
         
         # Create the download buttons
         info_label = ttk.Label(
@@ -345,6 +343,9 @@ def show_selection_window():
         # Add some spacing on the right
         spacer = ttk.Label(download_button_frame, text="")
         spacer.pack(side=tk.RIGHT, padx=10)
+        
+        # Initially hide the download frame
+        download_button_frame.pack_forget()
 
         # --- Comparison Frame ---
         comparison_frame = ttk.Frame(scrollable_frame, padding=(10, 10, 10, 10))
@@ -549,6 +550,23 @@ def show_selection_window():
                 
         # Function to handle mode change
         def on_mode_change(*args):
+            # Clear any existing graph data when mode changes
+            global current_graph_data, fig
+            current_graph_data = None
+            if 'fig' in globals() and fig is not None:
+                plt.close(fig)
+                fig = None
+            
+            # Hide download buttons
+            download_button_frame.pack_forget()
+            
+            # Clear result label
+            result_label.config(text="Total Entries: 0")
+            
+            # Clear graph frame
+            for widget in graph_frame.winfo_children():
+                widget.destroy()
+        
             populate_sources()
             toggle_run_index_visibility()
             toggle_comparison_frame_visibility()
@@ -560,6 +578,23 @@ def show_selection_window():
         def on_source_change(*args):
             current_mode = mode_var.get()
             current_source = source_var.get()
+            
+            if current_mode == "video":
+                global current_graph_data, fig
+                current_graph_data = None
+                if 'fig' in globals() and fig is not None:
+                    plt.close(fig)
+                    fig = None
+                    
+                # Hide download buttons
+                download_button_frame.pack_forget()
+                
+                # Clear result label
+                result_label.config(text="Total Entries: 0")
+                
+                # Clear graph frame
+                for widget in graph_frame.winfo_children():
+                    widget.destroy()
             
             if current_mode == "video" and current_source != "all":
                 populate_run_indices()
@@ -744,6 +779,15 @@ def show_selection_window():
         end_sec.insert(0, "59")
             
         def on_close():
+            # Clear global variables to prevent resource leaks
+            global current_graph_data, fig
+            current_graph_data = None
+            if 'fig' in globals() and fig is not None:
+                plt.close(fig)
+                fig = None
+            
+            # Clean up any matplotlib figures
+            plt.close('all')
             # When this window closes, re-show menu
             try:
                 sel.deiconify()
@@ -761,6 +805,16 @@ def show_selection_window():
                    end_date_entry, end_hour, end_min, end_sec,
                    resolution, visualization, mode_type, source, direction,
                    result_label, graph_frame, run_index, download_button_frame):
+        # Clear global variables at the start to prevent stale data
+        global current_graph_data, fig
+        current_graph_data = None
+        if 'fig' in globals():
+            plt.close(fig)
+        fig = None
+        
+        # Hide download buttons initially and clear any previous state
+        download_button_frame.pack_forget()
+        
         # Get date and time values
         start_date = start_date_entry.get_date()
         start_time = f"{start_hour.get().zfill(2)}:{start_min.get().zfill(2)}:{start_sec.get().zfill(2)}"
@@ -960,7 +1014,6 @@ def show_selection_window():
                 current_date += timedelta(days=1)
                 
         # Store data for CSV export (add this as a global variable or pass it around)
-        global current_graph_data
         current_graph_data = {
             'time_periods': time_periods,
             'counts': counts,
@@ -970,7 +1023,6 @@ def show_selection_window():
         }
         
         # Create figure
-        global fig
         fig, ax = plt.subplots(figsize=(12, 6))
         
         if visualization == "area":
@@ -1132,9 +1184,6 @@ def show_selection_window():
         
         # At the end of fetch_data, after creating the graph, show download buttons
         download_button_frame.pack(fill='x', padx=10, pady=10)
-    
-        # Close the matplotlib figure to prevent memory leaks
-        plt.close(fig)
 
     def download_csv():
         try:
