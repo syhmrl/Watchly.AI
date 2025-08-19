@@ -2,8 +2,12 @@ import tkinter as tk
 import cv2
 import threading
 import time
+import torch
+import torchreid
+import numpy as np
 
 from PIL import Image, ImageTk
+from scipy.spatial.distance import cosine
 
 # existing modules
 import config
@@ -11,6 +15,7 @@ import thread_manager
 import VideoProcessor
 
 from helpers import *
+from ReIdentification import ReIdentificationManager
 
 class EmbeddedFrame:
     def __init__(self, root, source_index, mode="CROWD", on_close=None):
@@ -40,7 +45,16 @@ class EmbeddedFrame:
         
         # Load model
         self.model = load_model(config.get_model_name())
-
+        
+        # Re-identification toggle
+        self.enable_reidentification = True  # Set to False to disable Re-ID
+        
+        # Initialize Re-ID Manager
+        self.reid_manager = ReIdentificationManager(
+            enable_reidentification=self.enable_reidentification,
+            similarity_threshold=0.4
+        )
+        
         # Visual flags
         self.enable_visual = True
         self.enable_recording = False
@@ -49,18 +63,20 @@ class EmbeddedFrame:
         
         # Counting states
         self.temp_count = set()
-        self.counted_ids     = set()    # track_id → has contributed to total
-        self.last_seen       = {}    # track_id -> last frame_idx seen
-        self.detection_count = {}    # track_id -> consecutive frames seen
-        self.frame_idx       = 0
+        self.counted_ids = set() # track_id → has contributed to total
+        self.last_seen = {} # track_id -> last frame_idx seen
+        self.detection_count = {} # track_id -> consecutive frames seen
+        self.frame_idx = 0
         
         # Line crossing specific counters
         self.entries = 0
         self.exits = 0
         self.crossed_ids = set()  # Track IDs that have already crossed to prevent double counting
 
-
         self.min_detection = 20
+        
+        # Mapping from BoTSORT's temporary ID to our persistent ID
+        self.tracker_id_map = {}
 
         # Build UI
         self._build_ui()
@@ -135,15 +151,14 @@ class EmbeddedFrame:
                 )
                 t.start()
                 self.tc.threads.append(t)
-                
+      
     def _update_loop(self):        
         frame_rate_buffer = []
         avg_frame_rate = 0
         t_start = time.perf_counter()
 
-        # window_name = f"People Counter - {source_name} - CROWD MODE"
-
-        if not self.running: return
+        if not self.running: 
+            return
 
         frame = None
         try:
@@ -156,7 +171,6 @@ class EmbeddedFrame:
 
         if frame is not None:
             frame = self.zc.apply_zoom(frame)
-
             frame = cv2.resize(frame, (VideoProcessor.FRAME_WIDTH, VideoProcessor.FRAME_HEIGHT))
             
             # YOLO inference
@@ -171,31 +185,40 @@ class EmbeddedFrame:
             elif self.mode == "LINE":
                 if self.enable_visual:
                     self._draw_crossing_line(visual_frame)
+                    
+            # Track current tracker IDs for Re-ID processing
+            current_tracker_ids = set()
             
             for result in results:
-
                 for box in result.boxes:
-                    
-                    tid = int(box.id.item()) if box.id is not None else None
-
-                    if tid is None:
+                    tracker_id = int(box.id.item()) if box.id is not None else None
+                    if tracker_id is None:
                         continue
                     
+                    current_tracker_ids.add(tracker_id)
                     coords = box.xyxy[0].tolist()
+
+                    # Use the ReIdentificationManager to get persistent ID
+                    persistent_id = self.reid_manager.process_detection(
+                        tracker_id, frame, coords, self.frame_idx
+                    )
                     
-                    # Mode-specific processing
-                    if self.mode == "CROWD":
-                        self._process_crowd_detection(tid, coords, seen_this_frame, visual_frame, box)
-                    elif self.mode == "LINE":
-                        self._process_line_crossing(tid, coords, seen_this_frame, visual_frame, box)
+                    # Mode-specific processing using persistent_id
+                    if persistent_id is not None:
+                        if self.mode == "CROWD":
+                            self._process_crowd_detection(persistent_id, coords, seen_this_frame, visual_frame, box)
+                        elif self.mode == "LINE":
+                            self._process_line_crossing(persistent_id, coords, seen_this_frame, visual_frame, box)
+
+            # Handle lost tracks using the ReIdentificationManager
+            self.reid_manager.handle_lost_tracks(current_tracker_ids, self.temp_count)
                         
             # Clean up tracks that haven't been seen recently
             cleanup_stale(self.last_seen, self.frame_idx, self.detection_count)
 
             # Remove the temp count if the person is out of frame for 10 frames
-            
             for track_id in list(self.temp_count):
-                if (self.frame_idx - self.last_seen[track_id]) > 10:
+                if track_id in self.last_seen and (self.frame_idx - self.last_seen[track_id]) > 10:
                     self.temp_count.remove(track_id)
 
             # Calculate and display FPS
@@ -209,7 +232,7 @@ class EmbeddedFrame:
                     VideoProcessor.display_inframe_count(len(self.temp_count), visual_frame)
                 elif self.mode == "LINE":
                     self._display_line_crossing_counts(visual_frame)
-
+                    
             # if recording, write the raw processed frame
             if self.enable_recording and self.writer:
                 self.writer.write(visual_frame)
@@ -223,9 +246,7 @@ class EmbeddedFrame:
 
         # Schedule next frame update
         self.root.after(30, self._update_loop)
-        
-    
-        
+                     
     def _process_crowd_detection(self, tid, coords, seen_this_frame, visual_frame, box):
         """Process detection for crowd monitoring mode"""
         # ROI filtering for crowd mode

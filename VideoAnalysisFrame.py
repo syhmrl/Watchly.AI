@@ -4,9 +4,12 @@ import threading
 import os
 import datetime
 import matplotlib.pyplot as plt
+import torch
+import torchreid
 
+from scipy.spatial.distance import cosine
 from PIL import Image, ImageTk
-from tkinter import messagebox, ttk
+from tkinter import ttk
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
 # existing modules
@@ -16,6 +19,7 @@ import VideoProcessor
 import tracker_config
 
 from database_utils import insert_video_analysis
+from ReIdentification import ReIdentificationManager
 from helpers import *
 
 class VideoAnalysisFrame:
@@ -48,6 +52,15 @@ class VideoAnalysisFrame:
             return
 
         self.model = load_model(config.get_model_name())
+        
+        # Re-identification toggle
+        self.enable_reidentification = True  # Set to False to disable Re-ID
+        
+        # Initialize Re-ID Manager
+        self.reid_manager = ReIdentificationManager(
+            enable_reidentification=self.enable_reidentification,
+            similarity_threshold=0.4
+        )
 
         self.enable_visual = True
         self.enable_recording = start_recording
@@ -63,7 +76,10 @@ class VideoAnalysisFrame:
         self.detection_count = {}    # track_id -> consecutive frames seen
         self.frame_idx       = 0
 
-        self.min_detection = 30
+        self.min_detection = 15
+        
+        # Mapping from BoTSORT's temporary ID to our persistent ID
+        self.tracker_id_map = {}
 
         # Build UI
         self._build_ui()
@@ -106,7 +122,7 @@ class VideoAnalysisFrame:
             self.enable_recording = True
             self.btn_record.config(text="Stop Recording")
             print("Recording started automatically")
-
+            
     def _update_loop(self):        
         if not self.running:
             return
@@ -121,51 +137,53 @@ class VideoAnalysisFrame:
 
         self.frame_idx += 1
         seen_this_frame = set()
-        tid = None
-           
+        
         frame = cv2.resize(frame, (VideoProcessor.FRAME_WIDTH, VideoProcessor.FRAME_HEIGHT))
+        results = VideoProcessor.model_video(self.model, frame)  # Your model_video function
+        
+        current_tracker_ids = set()
 
-        # YOLO inference
-        results = VideoProcessor.model_video(self.model, frame)
-                
         for result in results:
-
             for box in result.boxes:
-                
-                tid = int(box.id.item()) if box.id is not None else None
-
-                if tid is None:
+                tracker_id = int(box.id.item()) if box.id is not None else None
+                if tracker_id is None:
                     continue
                 
-                self.last_seen[tid] = self.frame_idx
-                seen_this_frame.add(tid)
+                current_tracker_ids.add(tracker_id)
+                xyxy = box.xyxy[0].tolist()
+
+                # Use the ReIdentificationManager to get persistent ID
+                persistent_id = self.reid_manager.process_detection(
+                    tracker_id, frame, xyxy, self.frame_idx
+                )
                 
-                # Increment detection counter for this ID
-                self.detection_count[tid] = self.detection_count.get(tid, 0) + 1
-                
-                if  tid not in self.counted_ids and self.detection_count[tid] >= self.min_detection:
-                    self.counted_ids.add(tid)
-                    self.total_count += 1
+                # --- Counting and Drawing Logic (using persistent_id) ---
+                if persistent_id is not None:
+                    seen_this_frame.add(persistent_id)
+                    
+                    if persistent_id not in self.counted_ids:
+                        self.counted_ids.add(persistent_id)
+                        self.total_count += 1
+                        VideoProcessor.count_to_db(self.video_name, persistent_id, 'enter', 'video')
 
-                    VideoProcessor.count_to_db(self.video_name, tid, 'enter', 'video')
+                    self.temp_count.add(persistent_id)
 
-                # Add met the min detection threshold
-                if self.detection_count[tid] >= self.min_detection:
-                    self.temp_count.add(tid)
+                    # Draw bounding box with the persistent ID
+                    color = VideoProcessor.random_colors[persistent_id % len(VideoProcessor.random_colors)]
+                    if self.enable_visual:
+                        x1, y1, x2, y2 = map(int, xyxy)
+                        cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+                        cv2.putText(frame, f"ID: {persistent_id}", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
 
-                # Draw bounding box and ID
-                color = VideoProcessor.random_colors[tid % len(VideoProcessor.random_colors)]
-                if self.enable_visual:
-                    x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
-                    cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
-                    cv2.putText(frame, f"ID: {tid}", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
-
+        # Handle lost tracks using the ReIdentificationManager
+        self.reid_manager.handle_lost_tracks(current_tracker_ids, self.temp_count)
+        
         # Clean up tracks that haven't been seen recently
         cleanup_stale(self.last_seen, self.frame_idx, self.detection_count)
 
-        # Remove the temp count if the person is out of frame for 20 frames
+        # Remove the temp count if the person is out of frame for 10 frames
         for track_id in list(self.temp_count):
-            if self.frame_idx - self.last_seen[track_id] > 20:
+            if track_id in self.last_seen and (self.frame_idx - self.last_seen[track_id]) > 10:
                 self.temp_count.remove(track_id)
 
         if self.enable_visual:
@@ -176,7 +194,7 @@ class VideoAnalysisFrame:
         if self.enable_recording and self.writer:
             self.writer.write(frame)
             
-        self.last_tracked_id = tid
+        self.last_tracked_id = tracker_id if 'tracker_id' in locals() else None
 
         # Convert to Tk image and display
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -191,7 +209,7 @@ class VideoAnalysisFrame:
         self.total_processing_time_ms += frame_processing_time_ms
 
         # Schedule next frame update
-        self.root.after(30, self._update_loop)
+        self.root.after(10, self._update_loop)
 
     def stop(self):
         print("Stopping video analysis...")
@@ -244,6 +262,10 @@ class VideoAnalysisFrame:
         
         # Signal threads to stop
         self.running = False
+        
+        # Release video capture
+        if hasattr(self, 'cap') and self.cap:
+            self.cap.release()
         
         # Destroy window
         self.root.destroy()

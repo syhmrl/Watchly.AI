@@ -1544,8 +1544,8 @@ def show_selection_window():
         crowd_win = tk.Toplevel(sel)
         crowd_win.title(window_title)
         # Pass either source_index=0 or loop for multiple sources
-        # app = EmbeddedFrame(crowd_win, source_index=0, mode=COUNT_MODE, on_close=on_counting_close)
-        app = EmbeddedFrameReid(crowd_win, source_index=0, mode=COUNT_MODE, on_close=on_counting_close)
+        app = EmbeddedFrame(crowd_win, source_index=0, mode=COUNT_MODE, on_close=on_counting_close)
+        # app = EmbeddedFrameReid(crowd_win, source_index=0, mode=COUNT_MODE, on_close=on_counting_close)
         
     # Add buttons to selection window
     button_frame = ttk.Frame(content_frame)
@@ -1829,7 +1829,8 @@ def open_model_setting(sel):
         on_close()
         
 def open_video_analysis(sel):
-    from VideoAnalysisReid import VideoAnalysisFrameReID
+    # from VideoAnalysisReid import VideoAnalysisFrameReID
+    from VideoAnalysisFrame import VideoAnalysisFrame
     
     # Hide main menu
     sel.withdraw()
@@ -2022,7 +2023,16 @@ def open_video_analysis(sel):
         video_analysis.title(f"Video Analysis - {video_var.get()} (Run #{run_index})")
         
         # Pass video path, ground truth count, and run index
-        app = VideoAnalysisFrameReID(
+        # app = VideoAnalysisFrameReID(
+        #     video_analysis, 
+        #     video_path=video_var.get(), 
+        #     on_close=on_va_close,
+        #     ground_truth_count=ground_truth_count,
+        #     run_index=run_index,
+        #     start_recording=start_recording
+        # )
+        
+        app = VideoAnalysisFrame(
             video_analysis, 
             video_path=video_var.get(), 
             on_close=on_va_close,
