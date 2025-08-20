@@ -68,7 +68,10 @@ class Database:
                 f1_score             REAL,
                 processing_time_ms   REAL,
                 frame_count          INTEGER,
-                analysis_timestamp   TEXT
+                analysis_timestamp   TEXT,
+                with_torchreid       INTEGER NOT NULL DEFAULT 0,
+                reid_model           TEXT,
+                similarity_threshold REAL  
             );
         ''')
 
@@ -552,15 +555,7 @@ if __name__ == "__main__":
     db = Database()
     
     try:
-        conn, cursor = db.get_connection()
-        
-        query = """
-            ALTER TABLE crossing_events RENAME TO counting_events
-        """
-        
-        cursor.execute(query)
-        conn.commit()
-    except Exception as e:
-        print(f"Error: {e}")
+        db._init_db()
     finally:
         db.close()
+    

@@ -170,24 +170,3 @@ class ReIdentificationManager:
 
             if temp_count is not None and persistent_id in temp_count:
                 temp_count.remove(persistent_id)
-    
-    def reset(self):
-        """Reset all tracking state."""
-        self.active_track_features.clear()
-        self.lost_track_features.clear()
-        self.tracker_id_map.clear()
-        self.next_person_id = 1
-    
-    def set_similarity_threshold(self, threshold):
-        """Update the similarity threshold for re-identification."""
-        self.similarity_threshold = threshold
-    
-    def toggle_reidentification(self, enable):
-        """Enable or disable re-identification."""
-        if enable and not self.enable_reidentification:
-            self.enable_reidentification = True
-            if self.reid_model is None:
-                self._initialize_reid_model()
-        elif not enable and self.enable_reidentification:
-            self.enable_reidentification = False
-            print("Re-identification disabled.")

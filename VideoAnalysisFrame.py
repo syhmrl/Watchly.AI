@@ -4,8 +4,6 @@ import threading
 import os
 import datetime
 import matplotlib.pyplot as plt
-import torch
-import torchreid
 
 from scipy.spatial.distance import cosine
 from PIL import Image, ImageTk
