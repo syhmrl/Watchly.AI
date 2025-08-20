@@ -51,13 +51,14 @@ class VideoAnalysisFrame:
 
         self.model = load_model(config.get_model_name())
         
-        # Re-identification toggle
-        self.enable_reidentification = True  # Set to False to disable Re-ID
+        # Load re-identification settings from config
+        reid_settings = config.get_reid_settings()
         
-        # Initialize Re-ID Manager
+        # Initialize Re-ID Manager with config settings
         self.reid_manager = ReIdentificationManager(
-            enable_reidentification=self.enable_reidentification,
-            similarity_threshold=0.4
+            enable_reidentification=reid_settings.get("enabled", True),
+            similarity_threshold=reid_settings.get("similarity_threshold", 0.4),
+            reid_model_name=reid_settings.get("model", "osnet_x0_25")
         )
 
         self.enable_visual = True
@@ -231,6 +232,11 @@ class VideoAnalysisFrame:
         fps  = self.video_fps
         ts   = tracker_config._load_yaml()  # or get_tracker_settings()
 
+        # Get ReID settings from the reid_manager
+        with_torchreid = self.reid_manager.enable_reidentification
+        reid_model = self.reid_manager.reid_model_name
+        similarity_threshold = self.reid_manager.similarity_threshold
+        
         insert_video_analysis(
             video_name=self.video_name,
             video_width=w,
@@ -250,7 +256,10 @@ class VideoAnalysisFrame:
             recall=recall,
             f1_score=f1_score,
             processing_time_ms=avg_processing_time_ms,
-            frame_count=self.frame_idx
+            frame_count=self.frame_idx,
+            with_torchreid=with_torchreid,
+            reid_model=reid_model,
+            similarity_threshold=similarity_threshold
         )
         
         # Stop recording if active
@@ -347,6 +356,34 @@ class VideoAnalysisFrame:
         tk.Label(tech_stats, text=f"IoU Threshold: {config.get_model_iou()}").pack(anchor="w")
         tk.Label(tech_stats, text=f"Min Detection Frames: {self.min_detection}").pack(anchor="w")
         tk.Label(tech_stats, text=f"Last Tracked ID: {self.last_tracked_id}").pack(anchor="w")
+        
+        # ReID Details Section
+        reid_stats = ttk.LabelFrame(stats_scrollable_frame, text="Re-Identification Settings", padding=10)
+        reid_stats.pack(fill=tk.X, pady=(0, 10))
+        
+        reid_enabled_text = "Enabled" if self.reid_manager.enable_reidentification else "Disabled"
+        reid_color = "green" if self.reid_manager.enable_reidentification else "red"
+        
+        reid_label = tk.Label(reid_stats, text=f"TorchReID: {reid_enabled_text}", 
+                             fg=reid_color, font=("Arial", 9, "bold"))
+        reid_label.pack(anchor="w")
+        
+        if self.reid_manager.enable_reidentification:
+            tk.Label(reid_stats, text=f"ReID Model: {self.reid_manager.reid_model_name}").pack(anchor="w")
+            tk.Label(reid_stats, text=f"Similarity Threshold: {self.reid_manager.similarity_threshold:.3f}").pack(anchor="w")
+            
+            # Additional ReID statistics if available
+            active_tracks = len(self.reid_manager.active_track_features)
+            lost_tracks = len(self.reid_manager.lost_track_features)
+            total_mappings = len(self.reid_manager.tracker_id_map)
+            
+            tk.Label(reid_stats, text=f"Active Tracks: {active_tracks}").pack(anchor="w")
+            tk.Label(reid_stats, text=f"Lost Tracks in Memory: {lost_tracks}").pack(anchor="w")
+            tk.Label(reid_stats, text=f"Current ID Mappings: {total_mappings}").pack(anchor="w")
+            tk.Label(reid_stats, text=f"Next Person ID: {self.reid_manager.next_person_id}").pack(anchor="w")
+        else:
+            tk.Label(reid_stats, text="ReID Model: N/A (Disabled)", fg="gray").pack(anchor="w")
+            tk.Label(reid_stats, text="Similarity Threshold: N/A (Disabled)", fg="gray").pack(anchor="w")
         
         stats_canvas.pack(side="left", fill="both", expand=True)
         stats_scrollbar.pack(side="right", fill="y")

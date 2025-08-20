@@ -18,6 +18,11 @@
     "conf": 0.4,
     "iou": 0.5
   },
+  "reid_settings": {
+    "enabled": true,
+    "model": "osnet_x0_5",
+    "similarity_threshold": 0.4
+  },
   "tracker_default_setting": {
     "tracker_type": "botsort",
     "track_high_thresh": 0.3,

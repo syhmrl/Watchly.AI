@@ -65,6 +65,15 @@ def get_roi_values():
     data = _load()
     return data.get('roi_values', {})
 
+def get_reid_settings():
+    """Get re-identification settings from config."""
+    data = _load()
+    return data.get('reid_settings', {
+        "enabled": True,
+        "model": "osnet_x0_25",
+        "similarity_threshold": 0.4
+    })
+
 # Write‐back functions:
 
 def set_camera_ips(new_ip_list):
@@ -96,5 +105,11 @@ def set_model_iou(new_iou):
 def set_roi_values(roi_name, roi_data):
     data = _load()
     data["roi_values"][roi_name] = roi_data
+    _save(data)
+    
+def set_reid_settings(reid_settings):
+    """Set re-identification settings in config."""
+    data = _load()
+    data["reid_settings"] = reid_settings
     _save(data)
     

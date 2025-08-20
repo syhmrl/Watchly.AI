@@ -144,7 +144,8 @@ def insert_video_analysis(
     total_count, model_name, confidence, iou,
     last_tracked_id, tracker_settings,
     run_index=1, ground_truth_count=None, precision=None, recall=None, f1_score=None,
-    processing_time_ms=None, frame_count=None
+    processing_time_ms=None, frame_count=None,
+    with_torchreid=None, reid_model=None, similarity_threshold=None
 ):
     """
     Insert a single summary row into video_analysis.
@@ -168,9 +169,10 @@ def insert_video_analysis(
             match_thresh, fuse_score, gmc_method, proximity_thresh,
             appearance_thresh, with_reid, tracker_model,
             run_index, ground_truth_count, precision, recall, f1_score,
-            processing_time_ms, frame_count, analysis_timestamp
+            processing_time_ms, frame_count, analysis_timestamp,
+            with_torchreid, reid_model, similarity_threshold
             ) VALUES (
-            ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
+            ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
             )
         """, (
             video_name,
@@ -203,7 +205,10 @@ def insert_video_analysis(
             f1_score,
             processing_time_ms,
             frame_count,
-            analysis_timestamp
+            analysis_timestamp,
+            1 if with_torchreid else 0,  # Convert boolean to integer
+            reid_model,
+            similarity_threshold
         ))
         
         conn.commit()

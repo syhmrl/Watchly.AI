@@ -1662,7 +1662,7 @@ def open_model_setting(sel):
 
     va_win = tk.Toplevel(sel)
     va_win.title("Model & Tracker Setting")
-    va_win.geometry("400x650")
+    va_win.geometry("400x800")
     va_win.configure(bg=BG_COLOR)
     va_win.protocol("WM_DELETE_WINDOW", on_close)
     
@@ -1704,7 +1704,59 @@ def open_model_setting(sel):
     for col in (0,1):
         section.grid_columnconfigure(col, weight=1)
 
+    # --- Re-Identification Section ---
+    reid_section = ttk.LabelFrame(va_win, text="Re-Identification Settings", padding=(10, 10, 10, 10))
+    reid_section.pack(fill="x", padx=10, pady=(5,5))
 
+    # Load current re-identification settings
+    current_reid = config.get_reid_settings()
+
+    # Re-ID Toggle
+    reid_enabled_var = tk.BooleanVar(value=current_reid.get("enabled", True))
+    reid_toggle = ttk.Checkbutton(reid_section, text="Enable Re-Identification", variable=reid_enabled_var)
+    reid_toggle.grid(row=0, column=0, columnspan=2, sticky="w", pady=(0,10))
+
+    # Re-ID Model Selection
+    reid_model_label = ttk.Label(reid_section, text="ReID Model:")
+    reid_model_label.grid(row=1, column=0, sticky="w", pady=(5,0))
+    
+    reid_models = [
+        "mobilenetv2_x1_0", "mobilenetv2_x1_4", "osnet_x1_0", "osnet_x0_75", 
+        "osnet_x0_5", "osnet_x0_25", "osnet_ibn_x1_0", "osnet_ain_x1_0", 
+        "osnet_ain_x0_75", "osnet_ain_x0_5", "osnet_ain_x0_25", "resnet50"
+    ]
+    
+    reid_model_var = tk.StringVar(value=current_reid.get("model", "osnet_x0_25"))
+    reid_model_menu = ttk.OptionMenu(reid_section, reid_model_var, reid_model_var.get(), *reid_models)
+    reid_model_menu.grid(row=1, column=1, sticky="ew", pady=(5,0))
+
+    # Similarity Threshold
+    similarity_label = ttk.Label(reid_section, text="Similarity Threshold:")
+    similarity_label.grid(row=2, column=0, sticky="w", pady=(5,0))
+    
+    similarity_entry = ttk.Entry(reid_section)
+    similarity_entry.grid(row=2, column=1, sticky="ew", pady=(5,0))
+    similarity_entry.insert(0, str(current_reid.get("similarity_threshold", 0.4)))
+
+    # Function to toggle visibility of ReID controls
+    def toggle_reid_controls():
+        enabled = reid_enabled_var.get()
+        state = "normal" if enabled else "disabled"
+        
+        reid_model_label.config(state=state)
+        reid_model_menu.config(state=state)
+        similarity_label.config(state=state)
+        similarity_entry.config(state=state)
+
+    # Initial state setup
+    toggle_reid_controls()
+    
+    # Bind the toggle function to the checkbox
+    reid_enabled_var.trace_add("write", lambda *args: toggle_reid_controls())
+
+    for col in (0,1):
+        reid_section.grid_columnconfigure(col, weight=1)
+    
     # --- Tracker Settings Section ---
     tsec = ttk.LabelFrame(va_win, text="Tracker Settings", padding=(10, 10, 10, 10))
     tsec.pack(fill="x", padx=10, pady=(5,10))
@@ -1771,6 +1823,14 @@ def open_model_setting(sel):
         model_var.set(config.get_model_name())
         conf_entry.delete(0, tk.END); conf_entry.insert(0, str(config.get_model_conf()))
         iou_entry.delete(0, tk.END); iou_entry.insert(0, str(config.get_model_iou()))
+        
+        # reid defaults
+        default_reid = config.get_reid_settings()
+        reid_enabled_var.set(default_reid.get("enabled", True))
+        reid_model_var.set(default_reid.get("model", "osnet_x0_25"))
+        similarity_entry.delete(0, tk.END); similarity_entry.insert(0, str(default_reid.get("similarity_threshold", 0.4)))
+        toggle_reid_controls()
+        
         # tracker defaults
         defaults = tracker_config.reset_tracker_to_defaults()
         tracker_type_var.set(defaults["tracker_type"])
@@ -1787,6 +1847,13 @@ def open_model_setting(sel):
         new_model = model_var.get()
         new_conf  = float(conf_entry.get())
         new_iou   = float(iou_entry.get())
+        
+        # collect re-identification settings
+        new_reid = {
+            "enabled": reid_enabled_var.get(),
+            "model": reid_model_var.get(),
+            "similarity_threshold": float(similarity_entry.get())
+        }
 
         # collect tracker settings
         new_tracker = {
@@ -1805,9 +1872,13 @@ def open_model_setting(sel):
         }
 
         # show confirmation
+        reid_status = "Enabled" if new_reid["enabled"] else "Disabled"
         summary = (
             f"Model → {new_model}\n"
             f"  conf: {new_conf}, iou: {new_iou}\n\n"
+            f"Re-Identification → {reid_status}\n"
+            f"  model: {new_reid['model']}\n"
+            f"  similarity_threshold: {new_reid['similarity_threshold']}\n\n"
             f"Tracker → {new_tracker['tracker_type']}\n"
             f"  high:{new_tracker['track_high_thresh']} low:{new_tracker['track_low_thresh']}\n"
             f"  new:{new_tracker['new_track_thresh']} buf:{new_tracker['track_buffer']}\n"
@@ -1823,6 +1894,7 @@ def open_model_setting(sel):
         config.set_model_name(new_model)
         config.set_model_conf(new_conf)
         config.set_model_iou(new_iou)
+        config.set_reid_settings(new_reid)
         tracker_config.set_tracker_settings(new_tracker)
 
         # close and back to menu
