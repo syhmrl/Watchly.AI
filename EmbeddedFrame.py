@@ -7,7 +7,6 @@ import torchreid
 import numpy as np
 
 from PIL import Image, ImageTk
-from scipy.spatial.distance import cosine
 
 # existing modules
 import config
@@ -46,13 +45,14 @@ class EmbeddedFrame:
         # Load model
         self.model = load_model(config.get_model_name())
         
-        # Re-identification toggle
-        self.enable_reidentification = True  # Set to False to disable Re-ID
+        # Load re-identification settings from config
+        reid_settings = config.get_reid_settings()
         
-        # Initialize Re-ID Manager
+        # Initialize Re-ID Manager with config settings
         self.reid_manager = ReIdentificationManager(
-            enable_reidentification=self.enable_reidentification,
-            similarity_threshold=0.4
+            enable_reidentification=reid_settings.get("enabled", True),
+            similarity_threshold=reid_settings.get("similarity_threshold", 0.4),
+            reid_model_name=reid_settings.get("model", "osnet_x0_25")
         )
         
         # Visual flags
