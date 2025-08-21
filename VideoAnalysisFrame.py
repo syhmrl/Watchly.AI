@@ -5,7 +5,6 @@ import os
 import datetime
 import matplotlib.pyplot as plt
 
-from scipy.spatial.distance import cosine
 from PIL import Image, ImageTk
 from tkinter import ttk
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
@@ -288,11 +287,19 @@ class VideoAnalysisFrame:
         """Show a statistics window with analysis results and charts"""
         stats_window = tk.Toplevel()
         stats_window.title(f"Analysis Results - {self.video_name} (Run #{self.run_index})")
-        stats_window.geometry("800x600")
+        
+        # Get the screen height
+        screen_height = stats_window.winfo_screenheight()
+        
+        stats_window.geometry(f"900x{screen_height}")
         stats_window.grab_set()  # Make it modal
         
+        # Create main container with fixed close button at bottom
+        main_container = tk.Frame(stats_window)
+        main_container.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
         # Create notebook for tabs
-        notebook = ttk.Notebook(stats_window)
+        notebook = ttk.Notebook(main_container)
         notebook.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
         
         # Statistics Tab
@@ -312,78 +319,91 @@ class VideoAnalysisFrame:
         stats_canvas.create_window((0, 0), window=stats_scrollable_frame, anchor="nw")
         stats_canvas.configure(yscrollcommand=stats_scrollbar.set)
         
-        # Basic Statistics
-        basic_stats = ttk.LabelFrame(stats_scrollable_frame, text="Basic Statistics", padding=10)
-        basic_stats.pack(fill=tk.X, pady=(0, 10))
+        # Create 2x2 grid layout for statistics frames
+        grid_container = tk.Frame(stats_scrollable_frame)
+        grid_container.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
         
-        tk.Label(basic_stats, text=f"Video: {self.video_name}", font=("Arial", 10, "bold")).pack(anchor="w")
-        tk.Label(basic_stats, text=f"Run Index: {self.run_index}").pack(anchor="w")
-        tk.Label(basic_stats, text=f"Total Objects Counted: {self.total_count}").pack(anchor="w")
-        tk.Label(basic_stats, text=f"Frames Processed: {self.frame_idx}").pack(anchor="w")
-        tk.Label(basic_stats, text=f"Video FPS: {self.video_fps:.2f}").pack(anchor="w")
-        tk.Label(basic_stats, text=f"Processing Time/Frame: {avg_processing_time_ms:.2f} ms").pack(anchor="w")
+        # Configure grid weights for centered layout
+        grid_container.grid_columnconfigure(0, weight=1)
+        grid_container.grid_columnconfigure(1, weight=1)
+        grid_container.grid_rowconfigure(0, weight=1)
+        grid_container.grid_rowconfigure(1, weight=1)
+        
+        # Basic Statistics
+        basic_stats = ttk.LabelFrame(grid_container, text="Basic Statistics", padding=15)
+        basic_stats.grid(row=0, column=0, padx=10, pady=10, sticky="nsew")
+        
+        tk.Label(basic_stats, text=f"Video: {self.video_name}", font=("Arial", 10, "bold")).pack(anchor="w", pady=2)
+        tk.Label(basic_stats, text=f"Run Index: {self.run_index}").pack(anchor="w", pady=1)
+        tk.Label(basic_stats, text=f"Total Objects Counted: {self.total_count}").pack(anchor="w", pady=1)
+        tk.Label(basic_stats, text=f"Frames Processed: {self.frame_idx}").pack(anchor="w", pady=1)
+        tk.Label(basic_stats, text=f"Video FPS: {self.video_fps:.2f}").pack(anchor="w", pady=1)
+        tk.Label(basic_stats, text=f"Processing Time/Frame: {avg_processing_time_ms:.2f} ms").pack(anchor="w", pady=1)
         
         # Duration calculation
         if self.start_timestamp and self.end_timestamp:
             start_time = datetime.datetime.fromisoformat(self.start_timestamp)
             end_time = datetime.datetime.fromisoformat(self.end_timestamp)
             duration = end_time - start_time
-            tk.Label(basic_stats, text=f"Analysis Duration: {duration}").pack(anchor="w")
+            tk.Label(basic_stats, text=f"Analysis Duration: {duration}").pack(anchor="w", pady=1)
+            
+        # Performance Metrics (Top-Right)
+        perf_stats = ttk.LabelFrame(grid_container, text="Performance Metrics", padding=15)
+        perf_stats.grid(row=0, column=1, padx=10, pady=10, sticky="nsew")
         
         # Performance Metrics (if ground truth provided)
         if self.ground_truth_count is not None and precision is not None:
-            perf_stats = ttk.LabelFrame(stats_scrollable_frame, text="Performance Metrics", padding=10)
-            perf_stats.pack(fill=tk.X, pady=(0, 10))
-            
-            tk.Label(perf_stats, text=f"Ground Truth Count: {self.ground_truth_count}").pack(anchor="w")
-            tk.Label(perf_stats, text=f"Predicted Count: {self.total_count}").pack(anchor="w")
-            tk.Label(perf_stats, text=f"Precision: {precision:.3f}").pack(anchor="w")
-            tk.Label(perf_stats, text=f"Recall: {recall:.3f}").pack(anchor="w")
-            tk.Label(perf_stats, text=f"F1-Score: {f1_score:.3f}").pack(anchor="w")
+            tk.Label(perf_stats, text=f"Ground Truth Count: {self.ground_truth_count}").pack(anchor="w", pady=1)
+            tk.Label(perf_stats, text=f"Predicted Count: {self.total_count}").pack(anchor="w", pady=1)
+            tk.Label(perf_stats, text=f"Precision: {precision:.3f}").pack(anchor="w", pady=1)
+            tk.Label(perf_stats, text=f"Recall: {recall:.3f}").pack(anchor="w", pady=1)
+            tk.Label(perf_stats, text=f"F1-Score: {f1_score:.3f}").pack(anchor="w", pady=1)
             
             # Error analysis
             error = abs(self.total_count - self.ground_truth_count)
             error_rate = (error / self.ground_truth_count) * 100 if self.ground_truth_count > 0 else 0
-            tk.Label(perf_stats, text=f"Absolute Error: {error}").pack(anchor="w")
-            tk.Label(perf_stats, text=f"Error Rate: {error_rate:.2f}%").pack(anchor="w")
+            tk.Label(perf_stats, text=f"Absolute Error: {error}").pack(anchor="w", pady=1)
+            tk.Label(perf_stats, text=f"Error Rate: {error_rate:.2f}%").pack(anchor="w", pady=1)
+        else:
+            tk.Label(perf_stats, text="No ground truth data available", fg="gray", font=("Arial", 9, "italic")).pack(anchor="w", pady=20)
         
         # Technical Details
-        tech_stats = ttk.LabelFrame(stats_scrollable_frame, text="Technical Details", padding=10)
-        tech_stats.pack(fill=tk.X, pady=(0, 10))
+        tech_stats = ttk.LabelFrame(grid_container, text="Technical Details", padding=15)
+        tech_stats.grid(row=1, column=0, padx=10, pady=10, sticky="nsew")
         
-        tk.Label(tech_stats, text=f"Model: {config.get_model_name()}").pack(anchor="w")
-        tk.Label(tech_stats, text=f"Confidence Threshold: {config.get_model_conf()}").pack(anchor="w")
-        tk.Label(tech_stats, text=f"IoU Threshold: {config.get_model_iou()}").pack(anchor="w")
-        tk.Label(tech_stats, text=f"Min Detection Frames: {self.min_detection}").pack(anchor="w")
-        tk.Label(tech_stats, text=f"Last Tracked ID: {self.last_tracked_id}").pack(anchor="w")
+        tk.Label(tech_stats, text=f"Model: {config.get_model_name()}").pack(anchor="w", pady=1)
+        tk.Label(tech_stats, text=f"Confidence Threshold: {config.get_model_conf()}").pack(anchor="w", pady=1)
+        tk.Label(tech_stats, text=f"IoU Threshold: {config.get_model_iou()}").pack(anchor="w", pady=1)
+        tk.Label(tech_stats, text=f"Min Detection Frames: {self.min_detection}").pack(anchor="w", pady=1)
+        tk.Label(tech_stats, text=f"Last Tracked ID: {self.last_tracked_id}").pack(anchor="w", pady=1)
         
         # ReID Details Section
-        reid_stats = ttk.LabelFrame(stats_scrollable_frame, text="Re-Identification Settings", padding=10)
-        reid_stats.pack(fill=tk.X, pady=(0, 10))
+        reid_stats = ttk.LabelFrame(grid_container, text="Re-Identification Settings", padding=15)
+        reid_stats.grid(row=1, column=1, padx=10, pady=10, sticky="nsew")
         
         reid_enabled_text = "Enabled" if self.reid_manager.enable_reidentification else "Disabled"
         reid_color = "green" if self.reid_manager.enable_reidentification else "red"
         
         reid_label = tk.Label(reid_stats, text=f"TorchReID: {reid_enabled_text}", 
                              fg=reid_color, font=("Arial", 9, "bold"))
-        reid_label.pack(anchor="w")
+        reid_label.pack(anchor="w", pady=2)
         
         if self.reid_manager.enable_reidentification:
-            tk.Label(reid_stats, text=f"ReID Model: {self.reid_manager.reid_model_name}").pack(anchor="w")
-            tk.Label(reid_stats, text=f"Similarity Threshold: {self.reid_manager.similarity_threshold:.3f}").pack(anchor="w")
+            tk.Label(reid_stats, text=f"ReID Model: {self.reid_manager.reid_model_name}").pack(anchor="w", pady=1)
+            tk.Label(reid_stats, text=f"Similarity Threshold: {self.reid_manager.similarity_threshold:.3f}").pack(anchor="w", pady=1)
             
             # Additional ReID statistics if available
             active_tracks = len(self.reid_manager.active_track_features)
             lost_tracks = len(self.reid_manager.lost_track_features)
             total_mappings = len(self.reid_manager.tracker_id_map)
             
-            tk.Label(reid_stats, text=f"Active Tracks: {active_tracks}").pack(anchor="w")
-            tk.Label(reid_stats, text=f"Lost Tracks in Memory: {lost_tracks}").pack(anchor="w")
-            tk.Label(reid_stats, text=f"Current ID Mappings: {total_mappings}").pack(anchor="w")
-            tk.Label(reid_stats, text=f"Next Person ID: {self.reid_manager.next_person_id}").pack(anchor="w")
+            tk.Label(reid_stats, text=f"Active Tracks: {active_tracks}").pack(anchor="w", pady=1)
+            tk.Label(reid_stats, text=f"Lost Tracks in Memory: {lost_tracks}").pack(anchor="w", pady=1)
+            tk.Label(reid_stats, text=f"Current ID Mappings: {total_mappings}").pack(anchor="w", pady=1)
+            tk.Label(reid_stats, text=f"Next Person ID: {self.reid_manager.next_person_id}").pack(anchor="w", pady=1)
         else:
-            tk.Label(reid_stats, text="ReID Model: N/A (Disabled)", fg="gray").pack(anchor="w")
-            tk.Label(reid_stats, text="Similarity Threshold: N/A (Disabled)", fg="gray").pack(anchor="w")
+            tk.Label(reid_stats, text="ReID Model: N/A (Disabled)", fg="gray").pack(anchor="w", pady=1)
+            tk.Label(reid_stats, text="Similarity Threshold: N/A (Disabled)", fg="gray").pack(anchor="w", pady=1)
         
         stats_canvas.pack(side="left", fill="both", expand=True)
         stats_scrollbar.pack(side="right", fill="y")
@@ -394,8 +414,8 @@ class VideoAnalysisFrame:
             notebook.add(chart_frame, text="Performance Chart")
             
             # Create matplotlib figure
-            fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(10, 8))
-            fig.suptitle(f'Analysis Results - {self.video_name} (Run #{self.run_index})', fontsize=14)
+            fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(12, 9))
+            fig.suptitle(f'Analysis Results - {self.video_name} (Run #{self.run_index})', fontsize=14, y=0.98)
             
             # Performance metrics bar chart
             metrics = ['Precision', 'Recall', 'F1-Score']
@@ -403,15 +423,15 @@ class VideoAnalysisFrame:
             colors = ['#FF6B6B', '#4ECDC4', '#45B7D1']
             
             bars = ax1.bar(metrics, values, color=colors, alpha=0.7)
-            ax1.set_title('Performance Metrics')
+            ax1.set_title('Performance Metrics', pad=30)
             ax1.set_ylabel('Score')
-            ax1.set_ylim(0, 1)
+            ax1.set_ylim(0, 1.2)
             
             # Add value labels on bars
             for bar, value in zip(bars, values):
                 height = bar.get_height()
-                ax1.text(bar.get_x() + bar.get_width()/2., height + 0.01,
-                        f'{value:.3f}', ha='center', va='bottom')
+                ax1.text(bar.get_x() + bar.get_width()/2., height + 0.02,
+                        f'{value:.3f}', ha='center', va='bottom', fontsize=10)
             
             # Count comparison
             counts = ['Ground Truth', 'Predicted']
@@ -419,14 +439,18 @@ class VideoAnalysisFrame:
             count_colors = ['#95A5A6', '#E74C3C' if self.total_count != self.ground_truth_count else '#27AE60']
             
             bars2 = ax2.bar(counts, count_values, color=count_colors, alpha=0.7)
-            ax2.set_title('Count Comparison')
+            ax2.set_title('Count Comparison', pad=30)
             ax2.set_ylabel('Count')
+            
+            # Calculate appropriate ylim to prevent overlap
+            max_count = max(count_values)
+            ax2.set_ylim(0, max_count * 1.2)
             
             # Add value labels
             for bar, value in zip(bars2, count_values):
                 height = bar.get_height()
-                ax2.text(bar.get_x() + bar.get_width()/2., height + 0.1,
-                        f'{value}', ha='center', va='bottom')
+                ax2.text(bar.get_x() + bar.get_width()/2., height + 0.2,
+                        f'{value}', ha='center', va='bottom', fontsize=10)
             
             # Error analysis pie chart
             if self.ground_truth_count > 0:
@@ -455,11 +479,11 @@ class VideoAnalysisFrame:
                         error_colors.append('#F39C12')
                     
                     ax3.pie(error_values, labels=error_labels, colors=error_colors, autopct='%1.1f%%')
-                    ax3.set_title('Error Analysis')
+                    ax3.set_title('Error Analysis', pad=20)
                 else:
                     ax3.text(0.5, 0.5, 'Perfect\nPrediction!', ha='center', va='center', 
                             transform=ax3.transAxes, fontsize=16, color='green', weight='bold')
-                    ax3.set_title('Error Analysis')
+                    ax3.set_title('Error Analysis', pad=20)
             
             # Processing time visualization
             if self.frame_idx > 0:
@@ -470,21 +494,21 @@ class VideoAnalysisFrame:
                 ax4.fill_between([0, 1], 0, avg_processing_time_ms, alpha=0.3, color='#3498DB')
                 ax4.set_xlim(0, 1)
                 ax4.set_ylim(0, max(avg_processing_time_ms * 1.5, 50))
-                ax4.set_title('Processing Performance')
+                ax4.set_title('Processing Performance', pad=20)
                 ax4.set_ylabel('Time (ms)')
                 ax4.legend()
                 ax4.set_xticks([])
             
-            plt.tight_layout()
+            plt.tight_layout(rect=[0, 0.03, 1, 0.95])  # Adjust layout to prevent overlapping
             
             # Embed plot in tkinter
             canvas = FigureCanvasTkAgg(fig, chart_frame)
             canvas.draw()
             canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
         
-        # Close button
-        close_frame = tk.Frame(stats_window)
-        close_frame.pack(fill=tk.X, pady=10)
+        # Fixed Close button at the bottom (always visible)
+        close_frame = tk.Frame(main_container)
+        close_frame.pack(fill=tk.X, pady=(5, 0))
         
         def close_stats():
             self.tc.stop_event.set()
@@ -500,10 +524,23 @@ class VideoAnalysisFrame:
                         
             plt.close('all')  # Clean up matplotlib figures
             stats_window.destroy()
+            
+        # Create a separator line above the button
+        separator = tk.Frame(close_frame, height=1, bg="lightgray")
+        separator.pack(fill=tk.X, pady=(5, 10))
         
-        tk.Button(close_frame, text="Close", command=close_stats, width=20).pack()
+        tk.Button(close_frame, text="Close", command=close_stats, width=20, 
+             font=("Arial", 10), relief="raised", bd=2).pack()
         
         stats_window.protocol("WM_DELETE_WINDOW", close_stats)
+        
+        # Enable mouse wheel scrolling for the canvas
+        def on_mousewheel(event):
+            stats_canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+        
+        stats_canvas.bind("<MouseWheel>", on_mousewheel)  # Windows
+        stats_canvas.bind("<Button-4>", lambda e: stats_canvas.yview_scroll(-1, "units"))  # Linux
+        stats_canvas.bind("<Button-5>", lambda e: stats_canvas.yview_scroll(1, "units"))   # Linux
         
         # Wait for window to close before continuing
         stats_window.wait_window()

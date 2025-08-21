@@ -1408,7 +1408,8 @@ def show_selection_window():
                 'model_name', 'confidence', 'iou', 'last_tracked_id', 'tracker_type', 
                 'track_high_thresh', 'track_low_thresh', 'new_track_thresh', 'track_buffer', 
                 'match_thresh', 'fuse_score', 'gmc_method', 'proximity_thresh', 
-                'appearance_thresh', 'with_reid', 'tracker_model'
+                'appearance_thresh', 'with_reid', 'tracker_model',
+                'with_torchreid', 'reid_model', 'similarity_threshold'
             ]
 
             # Create a Treeview for comparison
