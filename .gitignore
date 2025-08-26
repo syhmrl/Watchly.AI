@@ -7,7 +7,6 @@ model_data/
 deep_sort/
 Head-Detection-*-*/
 exp10-new/
-yolo11_head_detection*/
 .ipynb_checkpoints/
 venv
 *.zip
