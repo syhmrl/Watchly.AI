@@ -269,6 +269,8 @@ class VideoAnalysisFrameReID:
             self.writer.write(frame)
             
         self.last_tracked_id = tracker_id
+        
+        
 
         # Convert to Tk image and display
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)

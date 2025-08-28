@@ -172,6 +172,8 @@ class VideoAnalysisFrame:
                         x1, y1, x2, y2 = map(int, xyxy)
                         cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
                         cv2.putText(frame, f"ID: {persistent_id}", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+                        
+                print(f"tracker id: {tracker_id}\npersitent_id: {persistent_id}")
 
         # Handle lost tracks using the ReIdentificationManager
         self.reid_manager.handle_lost_tracks(current_tracker_ids, self.temp_count)
@@ -193,6 +195,8 @@ class VideoAnalysisFrame:
             self.writer.write(frame)
             
         self.last_tracked_id = tracker_id if 'tracker_id' in locals() else None
+        
+        
 
         # Convert to Tk image and display
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
