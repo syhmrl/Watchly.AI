@@ -385,10 +385,17 @@ class EmbeddedFrame:
             return
             
         color = VideoProcessor.random_colors[tid % len(VideoProcessor.random_colors)]
+        conf = float(box.conf.item()) if box.conf is not None else 0.0
+        label = f"ID: {tid}  Conf:{conf:.2f}"
+        
         x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
+        
         cv2.rectangle(visual_frame, (x1, y1), (x2, y2), color, 2)
-        cv2.putText(visual_frame, f"ID: {tid}", (x1, y1 - 10), 
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+        
+        # cv2.putText(visual_frame, f"ID: {tid}", (x1, y1 - 10), 
+        #            cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+        cv2.putText(visual_frame, label, (x1, y1 + 15),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
     
     def _display_line_crossing_counts(self, frame):
         """Display line crossing statistics on frame"""

@@ -4,10 +4,12 @@ import threading
 import os
 import datetime
 import matplotlib.pyplot as plt
+import csv
 
 from PIL import Image, ImageTk
 from tkinter import ttk
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from collections import defaultdict
 
 # existing modules
 import config
@@ -18,6 +20,16 @@ import tracker_config
 from database_utils import insert_video_analysis
 from ReIdentification import ReIdentificationManager
 from helpers import *
+
+# def save_preds_as_mot_txt(pred_by_frame, out_path):
+#     os.makedirs(os.path.dirname(out_path) or '.', exist_ok=True)
+#     with open(out_path, 'w', newline='') as f:
+#         writer = csv.writer(f)
+#         # MOT format: frame,id,left,top,width,height,score(optional)
+#         for frame in sorted(pred_by_frame.keys()):
+#             for pid, box, score in pred_by_frame[frame]:
+#                 left, top, width, height = box
+#                 writer.writerow([frame, pid, left, top, width, height, score])
 
 class VideoAnalysisFrame:
     def __init__(self, root, video_path, on_close=None, ground_truth_count=None, run_index=1, start_recording=False):
@@ -78,6 +90,10 @@ class VideoAnalysisFrame:
         
         # Mapping from BoTSORT's temporary ID to our persistent ID
         self.tracker_id_map = {}
+        
+        # self.pred_by_frame = defaultdict(list)   # frame (1-based) -> list of (pred_id, [x1,y1,x2,y2], score)
+        # self.pred_csv_path = os.path.join('.', 'predictions', f'{self.video_name}_{config.get_model_name()}_{reid_settings.get("model")}_preds.txt')
+        # os.makedirs(os.path.dirname(self.pred_csv_path), exist_ok=True)
 
         # Build UI
         self._build_ui()
@@ -157,6 +173,18 @@ class VideoAnalysisFrame:
                 
                 # --- Counting and Drawing Logic (using persistent_id) ---
                 if persistent_id is not None:
+                    # # assume: self.frame_idx is 1-based, persistent_id computed, xyxy = [x1,y1,x2,y2], conf available
+                    # pred_id = persistent_id if persistent_id is not None else -1   # prefer persistent id
+                    # score = box.conf.item() if hasattr(box, 'conf') else 1.0
+
+                    # # convert xyxy to left,top,width,height for MOT-style output
+                    # left, top, right, bottom = float(xyxy[0]), float(xyxy[1]), float(xyxy[2]), float(xyxy[3])
+                    # width = right - left
+                    # height = bottom - top
+
+                    # # store in memory
+                    # self.pred_by_frame[self.frame_idx].append((pred_id, [left, top, width, height], score))
+                                        
                     seen_this_frame.add(persistent_id)
                     
                     if persistent_id not in self.counted_ids:
@@ -172,8 +200,6 @@ class VideoAnalysisFrame:
                         x1, y1, x2, y2 = map(int, xyxy)
                         cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
                         cv2.putText(frame, f"ID: {persistent_id}", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
-                        
-                print(f"tracker id: {tracker_id}\npersitent_id: {persistent_id}")
 
         # Handle lost tracks using the ReIdentificationManager
         self.reid_manager.handle_lost_tracks(current_tracker_ids, self.temp_count)
@@ -212,6 +238,8 @@ class VideoAnalysisFrame:
 
         # Schedule next frame update
         self.root.after(10, self._update_loop)
+        
+    
 
     def stop(self):
         print("Stopping video analysis...")
@@ -264,6 +292,10 @@ class VideoAnalysisFrame:
             reid_model=reid_model,
             similarity_threshold=similarity_threshold
         )
+        
+        # # Save predictions
+        # save_preds_as_mot_txt(self.pred_by_frame, self.pred_csv_path)
+        # print(f"Saved predictions to {self.pred_csv_path}")
         
         # Stop recording if active
         if self.enable_recording and self.writer:
