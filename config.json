@@ -14,12 +14,12 @@
   },
   "DATABASE_PATH": "watchly_ai.db",
   "model_default_setting": {
-    "model": "yolo11n.pt",
+    "model": "yolo11l.pt",
     "conf": 0.4,
-    "iou": 0.4
+    "iou": 0.7
   },
   "reid_settings": {
-    "enabled": false,
+    "enabled": true,
     "model": "resnet50",
     "similarity_threshold": 0.4
   },

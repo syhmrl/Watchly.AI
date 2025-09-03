@@ -198,8 +198,13 @@ class VideoAnalysisFrame:
                     color = VideoProcessor.random_colors[persistent_id % len(VideoProcessor.random_colors)]
                     if self.enable_visual:
                         x1, y1, x2, y2 = map(int, xyxy)
+                        
+                        conf = float(box.conf.item()) if box.conf is not None else 0.0
+                        
+                        label = f" ID: {persistent_id}  Conf:{conf:.2f}"
+                        
                         cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
-                        cv2.putText(frame, f"ID: {persistent_id}", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+                        cv2.putText(frame, label, (x1, y1 + 15), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
 
         # Handle lost tracks using the ReIdentificationManager
         self.reid_manager.handle_lost_tracks(current_tracker_ids, self.temp_count)
